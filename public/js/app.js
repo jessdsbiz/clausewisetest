@@ -213,7 +213,7 @@ function renderHome() {
   const off = scan.busy ? 'disabled' : '';
   return `
     <div class="home-top">
-      <span class="logo">${LOGO}<span>Clause<b>Wise</b></span></span>
+      <span class="logo">${LOGO}<span>Clause<b>Wise</b> SG</span></span>
       <label class="lang-pill" title="Language for explanations">
         ${icons.globe}
         <span aria-hidden="true">${LANGUAGES.find((l) => l.id === scan.language).short}</span>
@@ -423,7 +423,7 @@ function renderExperts() {
     ${emptyState({
     icon: icons.chat,
     title: 'Big decision?',
-    text: 'ClauseWise explains contracts but isn\'t legal advice. For a big decision, ask a qualified professional to review your contract.',
+    text: 'ClauseWise SG explains contracts but isn\'t legal advice. For a big decision, ask a qualified professional to review your contract.',
   })}`;
 }
 
@@ -813,7 +813,7 @@ function renderRisks(c) {
     </div>
     <a class="btn btn-secondary btn-block help-case" href="https://www.case.org.sg/" target="_blank" rel="noopener">${icons.building} Consumer issue? Contact CASE</a>
 
-    <p class="tab-foot">These are warning signs, not a final verdict. ClauseWise can never confirm whether a contract is genuine.</p>`;
+    <p class="tab-foot">These are warning signs, not a final verdict. ClauseWise SG can never confirm whether a contract is genuine.</p>`;
 }
 
 // Wraps the AI's quote inside the clause in <mark>, matching loosely on spaces and quote marks.
@@ -890,7 +890,7 @@ function renderDocument(c, indexParam) {
         <a class="btn btn-primary" href="#/contract/${c.id}/ask/${encodeURIComponent(target)}">${icons.chat} Ask the chatbot</a>
         <a class="btn btn-yellow" href="#/contract/${c.id}/comic/${encodeURIComponent(target)}">${icons.comicGrid} See as comic</a>
       </div>
-      <p class="sheet-foot">Warning signs, not a final verdict. ClauseWise explains contracts. It is not legal advice.</p>
+      <p class="sheet-foot">Warning signs, not a final verdict. ClauseWise SG explains contracts. It is not legal advice.</p>
     </div>`;
 }
 
@@ -1147,7 +1147,7 @@ function renderAsk(c, prefillClause) {
       ${messages.map((m) => chatMessage(c, m)).join('')}
       ${busy ? `
         <div class="msg msg-user"><div class="bubble">${escapeHtml(c.asking)}</div></div>
-        <div class="msg msg-bot"><div class="bubble typing" aria-label="ClauseWise is answering"><span></span><span></span><span></span></div></div>` : ''}
+        <div class="msg msg-bot"><div class="bubble typing" aria-label="ClauseWise SG is answering"><span></span><span></span><span></span></div></div>` : ''}
       ${c.askError ? `
         <div class="msg msg-user"><div class="bubble">${escapeHtml(c.askError.question)}</div></div>
         ${notice('error', `Couldn't get an answer: ${c.askError.message}`)}
@@ -1162,7 +1162,7 @@ function renderAsk(c, prefillClause) {
         <input id="ask-input" type="text" maxlength="500" placeholder="Ask anything about your contract" aria-label="Your question" value="${escapeHtml(prefill)}" ${busy ? 'disabled' : ''}>
         <button class="send-btn" type="submit" aria-label="Send" ${busy ? 'disabled' : ''}>${icons.arrowUp}</button>
       </div>
-      <p class="composer-foot">Answers come only from your contract. ClauseWise explains contracts. It is not legal advice.</p>
+      <p class="composer-foot">Answers come only from your contract. ClauseWise SG explains contracts. It is not legal advice.</p>
     </form>`;
 }
 
@@ -1305,7 +1305,7 @@ const TAB_TITLES = {
   summary: 'Overview',
   risks: 'Risks & scam check',
   comic: 'Comic explanation',
-  ask: 'ClauseWise AI',
+  ask: 'ClauseWise SG AI',
 };
 
 function renderContract(c, tab, openClause = null) {
@@ -1356,7 +1356,7 @@ function togglePoint(row) {
 
 // Delete is offered at the bottom of the Overview and on each card in Contracts.
 async function deleteContract(id, button) {
-  if (!confirm('Delete this contract? The file and everything ClauseWise made from it will be removed. This cannot be undone.')) return;
+  if (!confirm('Delete this contract? The file and everything ClauseWise SG made from it will be removed. This cannot be undone.')) return;
   button.disabled = true;
   try {
     await api(`contracts?id=${encodeURIComponent(id)}`, { method: 'DELETE', what: 'deleting the contract' });

@@ -1,7 +1,7 @@
 ﻿{
-  "name": "ClauseWise",
-  "short_name": "ClauseWise",
-  "description": "Understand a contract before you sign it. ClauseWise explains contracts. It is not legal advice.",
+  "name": "ClauseWise SG",
+  "short_name": "ClauseWise SG",
+  "description": "Understand a contract before you sign it. ClauseWise SG explains contracts. It is not legal advice.",
   "start_url": "/#/home",
   "scope": "/",
   "display": "standalone",

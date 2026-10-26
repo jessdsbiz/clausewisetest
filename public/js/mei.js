@@ -31,7 +31,7 @@
     function op(on) { return on ? '1' : '0'; }
 
     return '' +
-'<svg viewBox="0 0 200 260" style="width:100%;height:auto;display:block" role="img" aria-label="Mei, the ClauseWise mascot, looking ' + ex + '">' +
+'<svg viewBox="0 0 200 260" style="width:100%;height:auto;display:block" role="img" aria-label="Mei, the ClauseWise SG mascot, looking' + ex + '">' +
   // back hair
   '<path d="M38 100 C36 50 70 28 100 28 C130 28 164 50 162 100 L162 140 C162 152 148 154 145 142 L145 112 L55 112 L55 142 C52 154 38 152 38 140 Z" fill="#2B2140"/>' +
   // body
