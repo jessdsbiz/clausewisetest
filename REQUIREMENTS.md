@@ -51,6 +51,8 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 *As a fresh graduate, I want the important terms pulled out in plain words, so that I don't miss anything about pay, probation or notice.*
 
 - [ ] The contract is split into numbered clauses that match the contract's own numbering where it has one (e.g. 5.3).
+- [ ] Schedules, annexes and appendices (often fee tables and payment dates) are kept as whole parts labelled e.g. "Schedule B", with each table row on its own line. They are searched like any clause.
+- [ ] Every summary point comes with exact quotes from the contract. Code (not AI) checks that each quote is in the contract word for word, and that every number, amount, date and name in the point is inside its quotes. A point that fails gets one rewrite; if it still fails, it is not shown.
 - [ ] The Summary tab shows pay, hours, probation, notice, contract length, fees and key dates.
 - [ ] Every summary item shows a clause tag (e.g. "Clause 4.2"). Tapping the tag shows the original clause text.
 - [ ] If a term isn't in the contract, the item says "Not stated in this contract" instead of guessing.
@@ -61,6 +63,11 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 
 - [ ] Each warning has a label (High / Medium / Info), a plain-words explanation and its source clause with the quoted text.
 - [ ] Warnings are listed High first, then Medium, then Info.
+- [ ] Every warning passes the same quote check as summary points; one that fails (after one rewrite) is not shown.
+- [ ] "Scam sign" is used only for: paying money to get or start a job, payment to a personal account, pressure to sign or pay within hours or days, missing company details, and requests for passwords/OTPs. The quote must show the pattern (e.g. a payment). Only scam signs can be High.
+- [ ] Normal terms (medical checks, probation, notice, confidentiality) are Info, or Medium only if unusually one-sided. When unsure, the lower level is used.
+- [ ] Examples in AI prompts use placeholders (e.g. S$&lt;amount&gt;), never values from the test contracts, so nothing from an example can appear in a result.
+- [ ] On a real employment contract with a medical-check clause, no scam sign is shown for it, and no warning mentions an amount the contract doesn't contain.
 - [ ] The tab shows "These are warning signs, not a final verdict."
 - [ ] Buttons work: ACRA company lookup opens the ACRA search, **ScamShield 1799** starts a phone call (`tel:1799`), and CASE opens the CASE website.
 - [ ] No output, whether AI-generated or fixed text, contains the words "safe", "illegal" or "a scam" when describing the contract. Guideline-based checks say "worth asking about".
@@ -81,6 +88,9 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - [ ] The Ask tab answers only from the uploaded contract and quotes the clause used.
 - [ ] When the answer isn't in the contract, the reply is "I'm not sure, ask an expert."
 - [ ] Before an answer is shown, a second check confirms the cited clause actually says what the answer claims; if not, the reply is "I'm not sure, ask an expert."
+- [ ] Answers pass the same code quote check as summary points. Only the parsed answer is shown, never raw AI output such as `clauses: [...]` or `quote: "..."`.
+- [ ] Before replying "I'm not sure", the chatbot searches the whole document again, including the schedules and tables a clause points to. On the school fees contract, "When am I supposed to pay my school fees?" lists the instalment dates from Schedule B and tags "Schedule B".
+- [ ] Summary, risks and chat use the strongest model on the NVIDIA Build account (Nemotron 3 Ultra); the fast model is kept for simple tasks only.
 - [ ] Summary, Risks, Comic captions and Ask replies can be shown in English, Chinese, Malay or Tamil, and the language can be changed after upload.
 - [ ] A read-aloud button speaks the current content using the Web Speech API in the selected language, and can be stopped.
 - [ ] The original clause text always stays in the contract's own language so it can be checked.
@@ -110,7 +120,7 @@ Stored in Supabase: one `contracts` row per upload. The original file is not sto
 | `personal` | jsonb | `{ hidden: { nric: [{ value, count }], accounts: [...] }, found: { names, addresses, phones, emails }, hide_extra }` for the Personal details screen |
 | `clauses` | jsonb | Array of `{ number, heading, text }` |
 | `summary` | jsonb | Array of `{ key, label, found, plain_text, clause_numbers[] }`. The rows depend on the contract type (Job offer: pay, hours, probation, notice, leave, start_date; Phone / Subscription: monthly_price, contract_length, early_termination_fee, how_to_cancel, auto_renewal, extra_charges; Rental: monthly_rent, deposit, lease_length, notice, repairs, early_termination; Loan: amount, interest_rate, monthly_repayment, loan_length, late_fees, early_repayment; Business / Other: 5–6 rows chosen by the AI). Rows with `found: false` are listed as "Not in this contract". `key_date` items hold one date each. |
-| `risks` | jsonb | `{ company: { name, uen, address, payee }, items: [{ level, kind, category, title, explanation, clause_numbers[], quote }] }`, where `level` is `high` / `medium` / `info` and `kind` is `scam_sign` / `risky_term`. `quote` is checked to be word-for-word from the first cited clause. |
+| `risks` | jsonb | `{ company: { name, uen, address, payee }, items: [{ level, kind, category, title, explanation, clause_numbers[], quote }] }`, where `level` is `high` / `medium` / `info` and `kind` is `scam_sign` / `risky_term`. `quote` is checked to be word-for-word from the contract (pieces from two clauses are joined with "…"), and every number, date and name in the title and explanation must be in it. `category` also includes `credentials` (asks for passwords/OTPs). |
 | `comics` | jsonb | Array of `{ clause_number, title, assumptions: [text], panels: [{ background, expression, holding, character, character_mood, speech: { who, text } \| null, caption, key }] x4, created_at }`, one per clause. The app builds each panel from these parts with Mei (`mei.js`, outfit set by contract type) and the comic kit; no AI images. The original clause text and the "AI-generated example scene" label come from the app, not the AI. |
 | `chat` | jsonb | Array of `{ role, text, clause_numbers[], quote, not_sure, created_at }` (last 60 messages). Replies without a real clause are saved as "I'm not sure, ask an expert." |
 | `translations` | jsonb | Translated explanations, made once per part: `{ zh: { summary: [{ label, plain_text }], risks: [{ title, explanation }], "comic:4.4": { title, assumptions, captions } } }`. Original clause text is never translated. |

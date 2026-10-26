@@ -1,10 +1,22 @@
 // Prompts for the AI tasks. Each one is grounded in the contract's own clauses.
+//
+// Examples in these prompts use placeholders like <amount> and <N> days, never real-looking
+// values: a model once copied "S$350" from an example into a warning about a contract that
+// never mentioned it. Keep it that way.
 
 export function clausesForPrompt(clauses) {
   return clauses
     .map((c) => `[${c.number}]${c.heading && c.heading !== c.number ? ` (${c.heading})` : ''} ${c.text}`)
     .join('\n');
 }
+
+// Shared by every task that reads the whole contract.
+const READING_RULES = `The contract is split into parts. Each part starts with its label in square brackets, e.g. [9.2], [Intro], [Para 3] or [Schedule B].
+Schedules, annexes, appendices and tables at the end (e.g. [Schedule B]) are part of the contract: fees, prices and payment dates are often only there. When a clause points to another part ("as stated in Schedule B", "see Clause 3.11"), read that part too.
+Examples in these instructions only show the format, with placeholders like <amount>. Never copy words, numbers or names from an example; use only this contract.`;
+
+// Shared rule for exact quotes, which the server checks word for word.
+const QUOTE_RULE = `copy the contract's words EXACTLY, character for character, as one unbroken piece of 4 to 40 words (for a table, copy up to 8 whole rows as written). Do not fix spelling, change numbers or join pieces from different places. Write any double quote mark inside a quote as a single quote ('). Every number, amount and date you write must appear inside your quotes. Never count or add things up yourself (write the items, not "five instalments").`;
 
 // The "In plain words" rows for each contract type: [key, label, what belongs in it, and
 // optionally a pattern for sentences that belong to another row and are removed from this one].
@@ -52,12 +64,12 @@ export const OTHER_TYPE_WORDS = {
   loan: /\b(probation|confirmed in your|salary|employer|employment|roaming|SIM card|tenant|landlord)\b/i,
 };
 
-const STYLE_EXAMPLE = `"This plan lasts 24 months. To cancel, tell them in the app or a store in the last 7 days before it ends. Miss that and it renews for 12 more months at S$65."`;
+const STYLE_EXAMPLE = `"This plan lasts <N> months. To cancel, tell them in the app or a store in the last <N> days before it ends. Miss that and it renews for <N> more months at S$<amount>."`;
 
 // `rows` is the subset of rows this call fills in (the summary is split into two calls that run
 // at the same time, to stay within the time limit). `withDates` adds the "key_dates" list.
 export function summarySystem(typeLabel, rows, withDates) {
-  const datesShape = withDates ? ',\n  "key_dates": [ { "plain": "...", "clauses": ["..."] } ]' : '';
+  const datesShape = withDates ? ',\n  "key_dates": [ { "plain": "...", "clauses": ["..."], "quotes": ["..."] } ]' : '';
   const rowsPart = rows
     ? `Fill in these rows, and only these:
 ${rows.map(([key, label, what]) => `- "${key}" (${label}): ${what}`).join('\n')}
@@ -65,14 +77,14 @@ ${rows.map(([key, label, what]) => `- "${key}" (${label}): ${what}`).join('\n')}
 Reply with JSON only, no other text, in exactly this shape:
 {
   "rows": {
-${rows.map(([key]) => `    "${key}": { "found": true, "plain": "...", "clauses": ["..."] }`).join(',\n')}
+${rows.map(([key]) => `    "${key}": { "found": true, "plain": "...", "clauses": ["..."], "quotes": ["..."] }`).join(',\n')}
   }${datesShape}
 }`
-    : `Pick the 5 or 6 terms in this contract that matter most to the person signing it (money, length, how to end it, penalties, key duties). Give each a short label of 1 to 3 words.
+    : `Pick the 5 or 6 terms in this contract that matter most to the person signing it (money, length, how to end it, penalties, key duties, and for fees: how much and when to pay). Give each a short label of 1 to 3 words.
 
 Reply with JSON only, no other text, in exactly this shape:
 {
-  "rows": [ { "label": "...", "found": true, "plain": "...", "clauses": ["..."] } ]${datesShape}
+  "rows": [ { "label": "...", "found": true, "plain": "...", "clauses": ["..."], "quotes": ["..."] } ]${datesShape}
 }`;
 
   const datesRule = withDates
@@ -80,7 +92,7 @@ Reply with JSON only, no other text, in exactly this shape:
     : '';
 
   return `You explain a contract to someone in Singapore with no legal background. This contract is a: ${typeLabel}.
-You are given the contract split into clauses. Each clause starts with its number in square brackets, e.g. [9.2].
+${READING_RULES}
 
 ${rowsPart}
 
@@ -90,13 +102,14 @@ How to write each "plain":
 - If there are many charges or rules, mention only the 2 or 3 that could cost the person the most.
 - No legal words. Never write "Agreement", "Minimum Contract Period", "Commencement Date", "Activation Date", "Early Termination Charge", "either party", "the Company", "in lieu" or "in arrears". Say "this plan", "this job", "the start date", "you", "they" or the company's name instead.
 - Style example for a phone plan: ${STYLE_EXAMPLE}
-- Keep the exact numbers from the contract (amounts, days, months, dates). Keep time limits as the contract states them, e.g. "within 24 hours of the letter being sent to you".
+- Keep the exact numbers from the contract (amounts, days, months, dates). Keep time limits as the contract states them, e.g. "within <N> hours of the letter being sent to you". Never add up, convert or work out new numbers.
 - Only talk about this kind of contract. Never use ideas from other kinds of contract (no probation or "being confirmed" in a phone plan, no rent in a job offer).
-- Only use what the clauses say. Never guess, and never join facts from different clauses into a new claim.
+- Only use what the contract says. Never guess, and never join facts from different clauses into a new claim.
 - Each row covers only its own topic.
 - Do not judge the terms. Never say whether something is fair, normal, safe, legal or illegal.
-- "clauses": the clause numbers each row comes from, exactly as in the brackets (e.g. "9.2", "Intro"). List only clauses that directly say what you wrote.
-- If the contract does not mention a row at all, set "found": false, "plain": "" and "clauses": [].${datesRule}`;
+- "clauses": the labels of the parts each row comes from, exactly as in the brackets (e.g. "9.2", "Intro", "Schedule B"). List only parts that directly say what you wrote.
+- "quotes": 1 to 3 quotes that prove the row. For each, ${QUOTE_RULE} If a fact is not in any quote, leave it out of "plain".
+- If the contract does not mention a row at all, set "found": false, "plain": "", "clauses": [] and "quotes": [].${datesRule}`;
 }
 
 // Second pass for a row that came back too long. The user message gives the row's topic,
@@ -107,6 +120,22 @@ export const SHORTEN_SYSTEM = `You make one explanation of a contract term short
 - Keep the key numbers, amounts and deadlines for that topic, exactly. Do not add anything new.
 - Plain everyday English, written to "you". Short sentences.
 Reply with JSON only: { "plain": "..." }`;
+
+// Second try for a summary point that failed the server's quote check. The user message gives
+// the topic, the point, what was wrong and the contract parts it came from.
+export const REPAIR_SYSTEM = `You fix one point that explains part of a contract to someone with no legal background. It could not be shown because its facts could not be checked against the contract.
+${READING_RULES}
+Rewrite the point on the same topic, so that every number, amount, date and name in it is inside your quotes. For each quote, ${QUOTE_RULE}
+Plain words, written to "you", 1 to 3 short sentences, under 30 words. Leave out anything you cannot quote. If nothing on this topic can be quoted, set "plain" to "".
+Reply with JSON only: { "plain": "...", "clauses": ["<label>"], "quotes": ["..."] }`;
+
+// The same second try for a warning sign. The user message gives the sign, what was wrong and the
+// contract parts it came from.
+export const RISK_REPAIR_SYSTEM = `You fix one warning sign about a contract, for someone with no legal background. It could not be shown because its facts could not be checked against the contract.
+${READING_RULES}
+Rewrite it about the same problem, so that every number, amount, date and name in "title" and "explanation" is inside your quote. For the quote, ${QUOTE_RULE}
+"title": at most 9 words. "explanation": 1 or 2 short sentences, at most 30 words, written to "you". Never join facts from different clauses. If the problem cannot be shown with one quote, set "title" to "".
+Reply with JSON only: { "title": "...", "explanation": "...", "clauses": ["<label>"], "quote": "..." }`;
 
 // Deterministic clean-up of legal words the AI still lets through.
 export const PLAIN_SWAPS = [
@@ -131,7 +160,7 @@ Do NOT include the company's own details: its name, office address, general phon
 Ignore anything already hidden with * characters.
 
 Copy each detail EXACTLY as it is written in the contract, character for character:
-- "names": each person's name as written (e.g. "Lim Mei Ling"), plus any shorter form used on its own (e.g. "Mei Ling"). Include a person's name given as a bank "Account name" for payment. No titles like Ms or Mr.
+- "names": each person's full name as written, plus any shorter form of it that is used on its own. Include a person's name given as a bank "Account name" for payment. No titles like Ms or Mr.
 - "addresses": home or billing addresses of individuals.
 - "phones": phone numbers that belong to an individual (including a person's PayNow number).
 - "emails": email addresses that belong to an individual.
@@ -139,7 +168,7 @@ Copy each detail EXACTLY as it is written in the contract, character for charact
 Reply with JSON only: { "names": [], "addresses": [], "phones": [], "emails": [] }`;
 
 // Second check on a chat answer: does the cited clause really say it?
-export const VERIFY_SYSTEM = `You check one answer about a contract against the clauses it cites.
+export const VERIFY_SYSTEM = `You check one answer about a contract against the clauses it cites (including any schedule or table they refer to).
 Answer "supported": true only if every factual claim in the answer is directly stated in these clauses. Claims that are only implied, guessed, or come from outside these clauses do not count.
 The answer may also say something is "a common scam sign" or "worth asking about" if it is in the list of warning signs given.
 The answer may be in English, Chinese, Malay or Tamil; the clauses are in English.
@@ -162,7 +191,7 @@ export function translateSystem(lang) {
 
 You get a JSON array of English strings. Translate every string.
 - Use simple, everyday words that a worker or tenant would use, not legal language.
-- Keep these exactly as they are: numbers, money amounts (e.g. S$350, S$3,200), dates, clause references (e.g. "Clause 5.3", "Acceptance"), names of people and companies (e.g. Tan Wei Ling, BrightPath Solutions Pte. Ltd.), email addresses, and "UEN", "ACRA", "CPF", "PayNow".
+- Keep these exactly as they are: numbers, money amounts (e.g. S$<amount>), dates, clause references (e.g. "Clause <N>", "Schedule <X>"), names of people and companies, email addresses, and "UEN", "ACRA", "CPF", "PayNow".
 - Keep the meaning exactly. Do not add or drop any facts, conditions or deadlines.
 - Remove any **bold** markers.
 
@@ -173,27 +202,33 @@ Reply with JSON only, in exactly this shape, with the same number of strings in 
 export function askSystem(contractType, clauses, warnings, lang = 'en') {
   const language = lang === 'en' ? '' : `
 - Write "answer" in ${LANGUAGE_NAMES[lang]}, in simple everyday words, even if the question is in English. Keep numbers, amounts, names and clause numbers as they are.
-- Keep "quote" in the contract's own original English words, copied exactly.`;
+- Keep "quotes" in the contract's own original English words, copied exactly.`;
   return `You answer questions about ONE contract for a person in Singapore with no legal background.
-The contract (a ${contractType}) is below, split into clauses. Each clause starts with its number in square brackets.
+The contract (a ${contractType}) is below.
+${READING_RULES}
+
+How to find the answer:
+- Search the WHOLE contract before deciding, including every schedule, annex, appendix and table at the end. Dates, amounts and fee timelines are often only in a schedule or table.
+- If a clause says the answer is somewhere else (e.g. "by the timelines as stated in the instalment schedule in Schedule B"), go to that part and answer from it, citing it (e.g. "Schedule B").
+- Set "found": false only if, after searching everything, the contract does not say.
 
 Rules:
 - Answer ONLY from the contract text below. Do not use outside knowledge, laws, or guesses.
-- If the contract does not clearly answer the question, or the question is not about this contract, set "found": false.
+- If the question is not about this contract, set "found": false.
 - If the question asks whether something is legal, allowed or enforceable, set "found": false (a professional must answer that).
 - If the question asks whether something is normal or okay, and one of the warning signs below covers it, say what the contract says and that it is "a common scam sign" or "worth asking about". Do not answer "yes" or "no", and do not say it is or isn't normal. If no warning sign covers it, set "found": false.
-- If the answer is a name, amount, date or deadline written in the contract, state it.
-- When "found" is false, "answer" is one short sentence saying what is missing, e.g. "The contract does not mention dental benefits."
-- Write 1 to 3 short sentences in plain English, to "you". Keep exact numbers. Use **bold** for the key amount, deadline or name.
-- "clauses": the clause numbers your answer comes from, written exactly as in the brackets.
-- "quote": copy 5 to 25 words EXACTLY, word for word, from the first clause in "clauses", that show the answer.
+- If the answer is a name, amount, date or deadline written in the contract, state it exactly as written. If there are several (e.g. instalment due dates), list them, at most 6.
+- When "found" is false, "answer" is one short sentence saying what is missing, e.g. "The contract does not mention <topic>."
+- Write 1 to 4 short sentences in plain English, to "you". Use **bold** for the key amount, deadline or name.
+- "clauses": the labels of the parts your answer comes from, exactly as in the brackets (e.g. "2.6", "Schedule B").
+- "quotes": 1 to 3 quotes that prove the answer. For each, ${QUOTE_RULE} For a table row, copy the row as it is written.
 - Never say the contract or company is safe, legal, illegal or a scam. You may say "a common scam sign" or "worth asking about".${language}
 
 Warning signs already found in this contract (from its own clauses):
 ${warnings.length ? warnings.map((w) => `- ${w}`).join('\n') : '- none'}
 
-Reply with JSON only, no other text:
-{ "found": true, "answer": "...", "clauses": ["5.3"], "quote": "..." }
+Reply with JSON only, no other text, no labels outside the JSON:
+{ "found": true, "answer": "...", "clauses": ["<label>"], "quotes": ["..."] }
 
 THE CONTRACT:
 ${clauses}`;
@@ -246,10 +281,10 @@ For each panel, choose its parts:
 - "speech": a short speech bubble, at most 7 words, said by "mei" or by the "character". Use the clause's real numbers. Use null for no bubble.
 - "caption": one short sentence under the panel, at most 14 words, plain English, present tense.
 
-Example, for a job offer clause saying "either party may end employment by giving 30 days' written notice":
+Example (format only: use the clause's own numbers, never these placeholders), for a job offer clause saying "either party may end employment by giving <N> days' written notice":
   1. office, happy, paper, no character, speech none, caption "Mei signs her new job contract."
   2. home_desk, thinking, phone, no character, speech { "who": "mei", "text": "A better job offer!" }, caption "Months later, she gets a better offer."
-  3. office, worried, none, boss (neutral), speech { "who": "character", "text": "You must give 30 days' notice." }, caption "But she must give 30 days' notice, in writing." (key)
+  3. office, worried, none, boss (neutral), speech { "who": "character", "text": "You must give <N> days' notice." }, caption "But she must give <N> days' notice, in writing." (key)
   4. home_desk, relieved, paper, no character, speech none, caption "She writes her letter and plans her last day."
   Assumptions: ["Assumed: Mei has passed probation."]
 
@@ -272,39 +307,42 @@ Reply with JSON only, no other text:
 }`;
 
 export const RISKS_SYSTEM = `You check contracts for warning signs, for people in Singapore with no legal background.
-You are given a contract split into clauses. Each clause starts with its number in square brackets, e.g. [5.3].
+${READING_RULES}
 
-Look for these warning signs (based on SPF / ScamShield, MOM and IMDA guidance):
-Scam signs ("kind": "scam_sign"):
-- pay_to_start: you must pay money to get or start a job (fees, deposits, training, uniform or kit fees).
-- personal_account: money must go to a person's name or personal account, not the company.
-- pressure: pressure to sign or pay very fast (e.g. within 24 hours, the offer lapses, no extensions). Title example: "Only 24 hours to accept the offer".
-- company_details: no company UEN, or no proper office address, in the contract.
-Your own name or NRIC printed in the letter, and normal admin like telling HR about a new bank account, are NOT signs.
-Risky terms ("kind": "risky_term"):
+There are two kinds of sign. Be strict about which is which.
+
+1. Scam signs ("kind": "scam_sign") are ONLY these patterns (from SPF / ScamShield and MOM guidance):
+- pay_to_start: YOU must pay money to the employer or someone else to get or start a job (a fee, deposit, training, uniform or kit fee). The clause must say you pay.
+- personal_account: you must pay money into a named person's own account, not the company's.
+- pressure: you must sign or pay within hours or a day or two, or the offer lapses.
+- credentials: you are asked for passwords, OTPs, PINs, Singpass or banking login details.
+Missing company details (UEN, address) are checked separately: do not report them.
+These are NOT scam signs, whatever they say: medical checks or being certified fit, probation, notice periods, confidentiality, background or reference checks, working hours, CPF, salary or commission terms, performance targets, normal admin like telling HR about a new bank account, your own name or NRIC printed in the letter.
+
+2. Risky terms ("kind": "risky_term") are terms worth asking about before you sign:
 - non_compete: a long or very wide ban on working elsewhere after you leave, or a fixed penalty for breaking it.
 - probation: probation can be extended, or ends with little or no notice.
-- one_sided_change: the company can change the terms or your job on its own.
+- one_sided_change: the company can change the terms, pay or your job on its own.
 - fee: a large fee, penalty, deposit that may be kept, or charges taken from your pay.
 - renewal: auto-renewal, or renewal onto a more expensive plan.
 - cancellation: a fixed early termination fee that does not go down over time, a very short cancellation window, or a phone contract longer than 24 months.
 - other: anything else clearly one-sided that could cost you money or your job.
 
-Levels:
-- "high": a common scam sign, or a term that could cost you a lot of money.
-- "medium": an unusual or one-sided term worth asking about before you sign.
-- "info": good to know, but not necessarily a problem.
+Levels. When unsure, always choose the LOWER level:
+- "high": only for a scam sign above.
+- "medium": a term that is unusually one-sided or could cost you a lot of money.
+- "info": a normal term that is good to know (e.g. ordinary probation, notice, confidentiality or medical check terms). Only include info items if they really help; it is fine to have none.
 
 Rules:
-- Only flag what is actually written (or clearly missing, like a UEN). Never guess.
-- Never join facts from different clauses into one claim. E.g. a 24-hour deadline to accept and a 2-day deadline to pay are different deadlines.
+- Only flag what is actually written. Never guess, and never assume a payment that the contract does not state.
+- Never join facts from different clauses into one claim.
 - Do not flag normal terms like CPF deductions, standard confidentiality, or ordinary working hours.
-- Each sign cites the clause numbers exactly as in the brackets. For something missing (e.g. no UEN), cite the clause with the company's details, usually "Intro".
-- "quote": copy 4 to 15 words EXACTLY, word for word, from the first cited clause, showing the problem. For something missing, use "".
-- "title": what it means for you, at most 9 words, e.g. "You must pay S$350 before you start".
-- "explanation": 1 or 2 short plain-English sentences, at most 30 words, written to "you".
+- "clauses": the labels of the parts, exactly as in the brackets.
+- "quote": the words that show the problem. ${QUOTE_RULE}
+- "title": what it means for you, at most 9 words, in plain words. It may only use numbers and names that are in your quote.
+- "explanation": 1 or 2 short plain-English sentences, at most 30 words, written to "you". Same rule on numbers and names.
 - NEVER call the contract or company safe, legal, illegal, unlawful, fraud or a scam, and never say something is "not allowed". Instead say "a common scam sign", "worth asking about", or "check before you pay".
-- At most 7 signs, most serious first. One sign per problem, no duplicates: do not flag the same clause twice for the same problem.
+- At most 7 signs, most serious first. One sign per problem, no duplicates. An empty list is a good answer when nothing stands out.
 
 Also copy these details from the contract, or null if not written:
 - company.name: the employer / company name.
@@ -312,10 +350,10 @@ Also copy these details from the contract, or null if not written:
 - company.address: the company's office address.
 - company.payee: the account name of the person or account you are told to pay, if any.
 
-Reply with JSON only, no other text, in exactly this shape:
+Reply with JSON only, no other text, in exactly this shape (placeholders in < >):
 {
-  "company": { "name": "...", "uen": null, "address": "...", "payee": null },
+  "company": { "name": "<name or null>", "uen": null, "address": "<address or null>", "payee": null },
   "signs": [
-    { "kind": "scam_sign", "category": "pay_to_start", "level": "high", "title": "...", "explanation": "...", "clauses": ["5.3"], "quote": "..." }
+    { "kind": "<scam_sign or risky_term>", "category": "<category>", "level": "<high, medium or info>", "title": "...", "explanation": "...", "clauses": ["<label>"], "quote": "..." }
   ]
 }`;

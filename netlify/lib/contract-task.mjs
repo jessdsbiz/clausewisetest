@@ -17,21 +17,39 @@ export const TYPE_LABELS = {
   other: 'Other',
 };
 
-// Lookup that turns "Clause 4.4" / "[Acceptance]" / "Paragraph 3" into the contract's own
-// clause number ("4.4", "Acceptance", "Para 3"), or null if there is no such clause.
+// Lookup that turns "Clause 4.4" / "[Acceptance]" / "Paragraph 3" / "Item 4 of Schedule A" into the
+// contract's own clause number ("4.4", "Acceptance", "Para 3", "Schedule A"), or null if there is none.
 export function clauseLookup(clauses) {
   const known = new Map(clauses.map((c) => [c.number.toLowerCase(), c.number]));
   return (ref) => {
     const key = String(ref).replace(/[[\]()]/g, '').replace(/^(clause|section)\s+/i, '').trim().toLowerCase()
       .replace(/^(paragraph|para\.?|p\.?)\s*(\d+)$/, 'para $2');
+    const attachment = key.match(/\b(schedule|annex(?:ure)?|appendix|exhibit|attachment)\s+([a-z]{1,2}|\d{1,2})\b/);
     // In a document split into paragraphs, the AI often writes "8" for "Para 8".
-    return known.get(key) || (/^\d+$/.test(key) && known.get(`para ${key}`)) || null;
+    return known.get(key) || (/^\d+$/.test(key) && known.get(`para ${key}`))
+      || (attachment && known.get(`${attachment[1]} ${attachment[2]}`)) || null;
   };
+}
+
+// The given clauses plus every schedule, annex or appendix they mention ("as stated in Schedule B").
+export function withReferencedParts(clauses, parts) {
+  const lookup = clauseLookup(clauses);
+  const out = [...parts];
+  for (const p of parts) {
+    for (const m of p.text.matchAll(/\b(schedule|annex(?:ure)?|appendix|exhibit|attachment)s?\s+([A-Z]{1,2}|\d{1,2})\b/gi)) {
+      const label = lookup(`${m[1]} ${m[2]}`);
+      const c = label && clauses.find((x) => x.number === label);
+      if (c && !out.includes(c)) out.push(c);
+    }
+  }
+  return out;
 }
 
 // Either give `system` + `build` (one AI call, then build the result from its JSON),
 // or `run(clauses, row)` for a task that needs its own AI calls.
-export function contractTask({ field, system, maxTokens = 2000, build, run }) {
+export function contractTask({
+  field, system, model = TEXT_MODEL, maxTokens = 2000, timing = { hedgeAfterMs: 13000, timeoutMs: 26000 }, build, run,
+}) {
   return async (req) => {
     try {
       if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed.');
@@ -49,15 +67,15 @@ export function contractTask({ field, system, maxTokens = 2000, build, run }) {
 
       const result = run
         ? await run(clauses, row)
-        : build(await chatJsonHedged({
-          model: TEXT_MODEL,
+        : await build(await chatJsonHedged({
+          model,
           thinking: false,
           maxTokens,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: `Contract type: ${TYPE_LABELS[row.contract_type]}\n\n${clausesForPrompt(clauses)}` },
           ],
-        }, { hedgeAfterMs: 13000, timeoutMs: 26000 }), clauses, row);
+        }, timing), clauses, row);
       await updateContract(query, { clauses, [field]: result });
       return Response.json({ clauses, [field]: result });
     } catch (err) {

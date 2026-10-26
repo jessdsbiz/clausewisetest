@@ -600,7 +600,7 @@ function renderSummary(c) {
       ${banner}
       <div class="card loading loading-tall">
         <span class="spinner" aria-hidden="true"></span>
-        <span>Reading your contract and pulling out the key terms. This takes about 10 seconds…</span>
+        <span>Reading your contract and checking each key term against it. This takes 15 to 40 seconds…</span>
       </div>`;
   }
 
@@ -661,6 +661,7 @@ const RISK_ICONS = {
   personal_account: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
   pressure: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></svg>',
   company_details: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M4 10h16M12 3l8 4H4zM6 10v8M10 10v8M14 10v8M18 10v8"/></svg>',
+  credentials: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3M12 15v2"/></svg>',
   personal_data: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6 16c.5-1.5 1.7-2 3-2s2.5.5 3 2M14 10h4M14 14h3"/></svg>',
   non_compete: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>',
   probation: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12M6 21h12M8 3v4l4 5 4-5V3M8 21v-4l4-5 4 5v4"/></svg>',
@@ -762,7 +763,7 @@ function renderRisks(c) {
     return `
       <div class="card loading loading-tall">
         <span class="spinner" aria-hidden="true"></span>
-        <span>Checking your contract for warning signs. This takes about 15 seconds…</span>
+        <span>Checking your contract for warning signs. This takes about 20 seconds…</span>
       </div>`;
   }
 
@@ -817,10 +818,19 @@ function renderRisks(c) {
 }
 
 // Wraps the AI's quote inside the clause in <mark>, matching loosely on spaces and quote marks.
+// Quote marks don't count, as in the server's check: the quote may write " as ' or leave out
+// the marks around a defined term, so any quote mark in the text may or may not be in the quote.
+const QUOTE_MARK = '[\'‘’`"“”]';
 function highlight(text, quote) {
   if (!quote) return escapeHtml(text);
-  const pattern = quote.trim().split(/\s+/)
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/['‘’`]/g, "['‘’`]").replace(/["“”]/g, '["“”]'))
+  // A quote joined from two pieces ("… ") highlights its longest piece.
+  const piece = quote.split('…').map((p) => p.trim()).sort((a, b) => b.length - a.length)[0];
+  if (!piece) return escapeHtml(text);
+  const pattern = piece.split(/\s+/)
+    .map((w) => {
+      const chars = [...w.replace(/['‘’`"“”]/g, '')].map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      return `${QUOTE_MARK}*${chars.join(`${QUOTE_MARK}?`)}${QUOTE_MARK}*`;
+    })
     .join('\\s+');
   const m = new RegExp(pattern, 'i').exec(text);
   if (!m) return escapeHtml(text);
@@ -853,7 +863,12 @@ function renderDocument(c, indexParam) {
     if (section !== lastSection) {
       lastSection = section;
       if (numbered) head = `<h3 class="doc-h">${escapeHtml(section)}. ${escapeHtml(cl.heading || '')}</h3>`;
-      else if (cl.number !== 'Intro') head = `<h3 class="doc-h">${escapeHtml(cl.heading || cl.number)}</h3>`;
+      else if (cl.number !== 'Intro') {
+        // "Schedule B · COURSE FEES"; sections like "Acceptance" are their own heading.
+        const name = cl.heading && cl.heading !== cl.number && /^(schedule|annex|appendix|exhibit|attachment)/i.test(cl.number)
+          ? `${cl.number} · ${cl.heading}` : cl.heading || cl.number;
+        head = `<h3 class="doc-h">${escapeHtml(name)}</h3>`;
+      }
     }
     const flagged = r.clause_numbers.includes(cl.number);
     const isTarget = cl.number === target;
@@ -901,6 +916,7 @@ const COMIC_RISK_TITLES = {
   pay_to_start: 'Paying to start',
   personal_account: 'Paying a person',
   pressure: 'Deadline to accept',
+  credentials: 'Passwords or OTPs',
   non_compete: 'Non-compete',
   one_sided_change: 'Changing the terms',
   probation: 'Probation',
@@ -1113,12 +1129,16 @@ const EXPERT_CARD = `
     </div>
   </div>`;
 
+// Answers saved before the server parsed replies strictly can end in raw fields
+// (`clauses: ["2.6"] quote: "…"`): show only the answer.
+const cleanAnswer = (text) => String(text || '').replace(/\s*\b(clauses|quotes?)\s*:\s*[[“"].*$/is, '');
+
 function chatMessage(c, m) {
   if (m.role === 'user') return `<div class="msg msg-user"><div class="bubble">${escapeHtml(m.text)}</div></div>`;
   return `
     <div class="msg msg-bot">
       <div class="bubble">
-        <p>${formatAnswer(m.text)}</p>
+        <p>${formatAnswer(cleanAnswer(m.text))}</p>
         ${m.quote ? `<blockquote class="msg-quote">“${escapeHtml(m.quote)}”</blockquote>` : ''}
         ${m.clause_numbers?.length ? `
           <div class="msg-chips">${m.clause_numbers.map((n) => `

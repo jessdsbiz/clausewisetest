@@ -39,17 +39,18 @@ async function check(res, what) {
 }
 
 // Supabase sometimes returns a brief 5xx (e.g. Cloudflare 520). Requests that are safe
-// to repeat are retried once after a short pause.
+// to repeat are retried once after a short pause. Each try gives up after 10s, so a stuck
+// request can't hold the function past its time limit.
 async function fetchRetry(url, options) {
   try {
-    const res = await fetch(url, options);
+    const res = await fetch(url, { ...options, signal: AbortSignal.timeout(10000) });
     if (res.status < 500) return res;
     console.warn(`Supabase ${res.status}, retrying once:`, url.split('?')[0]);
   } catch (err) {
     console.warn('Supabase connection failed, retrying once:', err.message);
   }
   await new Promise((r) => setTimeout(r, 600));
-  return fetch(url, options);
+  return fetch(url, { ...options, signal: AbortSignal.timeout(10000) });
 }
 
 // ---------- Table: contracts ----------

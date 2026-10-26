@@ -3,14 +3,17 @@
 //
 // "In plain words" has different rows for each contract type (see SUMMARY_ROWS). Rows the
 // contract doesn't mention are saved with found: false, so the app can list them as
-// "Not in this contract". Every row keeps only clause numbers that really exist.
+// "Not in this contract". Every other row must come with exact quotes from the contract that
+// contain all its numbers, dates and names (checked in verify.mjs); a row that fails is not shown.
+// Its clause numbers are the clauses those quotes come from.
 
-import { contractTask, clauseLookup, TYPE_LABELS } from '../lib/contract-task.mjs';
+import { contractTask, clauseLookup, withReferencedParts, TYPE_LABELS } from '../lib/contract-task.mjs';
 import {
-  summarySystem, SUMMARY_ROWS, OTHER_TYPE_WORDS, PLAIN_SWAPS, SHORTEN_SYSTEM, clausesForPrompt,
+  summarySystem, SUMMARY_ROWS, OTHER_TYPE_WORDS, PLAIN_SWAPS, SHORTEN_SYSTEM, REPAIR_SYSTEM, clausesForPrompt,
 } from '../lib/prompts.mjs';
-import { chatJsonHedged, SUMMARY_MODEL } from '../lib/nvidia.mjs';
+import { chatJsonHedged, SUMMARY_MODEL, FUNCTION_LIMIT_MS } from '../lib/nvidia.mjs';
 import { cleanText } from '../lib/wording.mjs';
+import { checkPoint, unsupportedFacts } from '../lib/verify.mjs';
 
 const MAX_WORDS = 35;
 
@@ -20,7 +23,7 @@ const wordCount = (s) => s.split(/\s+/).filter(Boolean).length;
 
 // Plain-words clean-up the AI can't be trusted to do every time: banned wording out, legal
 // terms swapped for everyday ones, no sentences borrowed from another kind of contract, and
-// no sentences that belong to another row (`offTopic`, e.g. the S$350 fee under Pay).
+// no sentences that belong to another row (`offTopic`, e.g. a joining fee under Pay).
 function polish(text, type, offTopic) {
   let s = cleanText(text, 600);
   for (const [pattern, plain] of PLAIN_SWAPS) s = s.replace(pattern, plain);
@@ -56,15 +59,16 @@ async function makeSummary(clauses, row) {
   const type = row.contract_type;
   const rows = SUMMARY_ROWS[type];
   const contract = clausesForPrompt(clauses);
+  // The time limit leaves room for the shorten pass and saving before the function's own limit.
   const ask = (subset, withDates) => chatJsonHedged({
     model: SUMMARY_MODEL,
     thinking: false,
-    maxTokens: 1200,
+    maxTokens: 3500, // quotes make replies long; 1800 cut long contracts off mid-JSON
     messages: [
       { role: 'system', content: summarySystem(TYPE_LABELS[type], subset, withDates) },
       { role: 'user', content: contract },
     ],
-  }, { hedgeAfterMs: 9000, timeoutMs: 23000 });
+  }, { hedgeAfterMs: Math.round(FUNCTION_LIMIT_MS * 0.4), timeoutMs: FUNCTION_LIMIT_MS - 8000 });
 
   // Two smaller calls at the same time finish sooner than one big one.
   const parts = rows
@@ -82,36 +86,59 @@ async function makeSummary(clauses, row) {
     })
     : (Array.isArray(parts[0]?.rows) ? parts[0].rows : []).slice(0, 6).map((r, i) => ({
       key: `term_${i + 1}`,
-      label: cleanText(r?.label, 30) || 'Key term',
+      // Labels should be 1-3 words; a long one is cut at a word, never mid-word.
+      label: cleanText(r?.label, 60).replace(/^(.{1,32})\s.*$/, '$1').replace(/[\s,;:–-]+$/, '') || 'Key term',
       r,
     }));
 
-  const items = [];
-  const offTopicFor = new Map();
-  for (const { key, label, r, offTopic } of raw) {
-    const plain = r?.found === false ? '' : polish(r?.plain, type, offTopic);
-    const clauseNumbers = validRefs(r?.clauses);
-    if (!plain) {
-      items.push({ key, label, found: false, plain_text: '', clause_numbers: [] });
-    } else if (clauseNumbers.length) {
-      items.push({ key, label, found: true, plain_text: plain, clause_numbers: clauseNumbers });
-      offTopicFor.set(key, offTopic);
-    }
-    // A row with text but no real clause is left out: every row must point to the contract.
-  }
+  const datesPart = parts.find((p) => Array.isArray(p?.key_dates));
+  const dates = (datesPart?.key_dates || []).slice(0, 3).map((r) => ({ key: 'key_date', label: 'Key date', r }));
 
-  // Any row that is still too long gets one rewrite, all at the same time.
-  await Promise.all(items.map(async (it) => {
-    if (it.found && wordCount(it.plain_text) > MAX_WORDS) {
-      it.plain_text = await shorten(it.plain_text, type, it.label, offTopicFor.get(it.key));
+  // Every point must pass the quote check. A point that fails gets one rewrite (all at the same
+  // time), told what was wrong; if that fails too, the point is not shown.
+  const items = await Promise.all([...raw, ...dates].map(async ({ key, label, r, offTopic }) => {
+    const plain = r?.found === false ? '' : polish(r?.plain, type, offTopic);
+    if (!plain) return key === 'key_date' ? null : { key, label, found: false, plain_text: '', clause_numbers: [] };
+
+    const cited = validRefs(r?.clauses);
+    let check = checkPoint(clauses, { texts: [plain], quotes: r?.quotes, cited });
+    let text = plain;
+    if (!check.ok) {
+      const fixed = await repair(clauses, label, plain, cited, check.why);
+      text = fixed ? polish(fixed.plain, type, offTopic) : '';
+      const recheck = text && checkPoint(clauses, { texts: [text], quotes: fixed.quotes, cited: validRefs(fixed.clauses) });
+      console.log(`Summary point (${label}) failed the check: ${check.why}. Rewrite ${recheck?.ok ? 'passed' : `failed${recheck ? `: ${recheck.why}` : ''}`}.`);
+      if (!recheck?.ok) return null;
+      check = recheck;
     }
+
+    // A row that is still too long gets one shorter rewrite. It is checked against the same
+    // quotes, so the rewrite can't slip in a new fact.
+    if (wordCount(text) > MAX_WORDS) {
+      const short = await shorten(text, type, label, offTopic);
+      if (!unsupportedFacts(short, check.quotes).length) text = short;
+    }
+    return { key, label, found: true, plain_text: text, clause_numbers: check.clause_numbers };
   }));
 
-  const datesPart = parts.find((p) => Array.isArray(p?.key_dates));
-  const dates = (datesPart?.key_dates || [])
-    .map((d) => ({ key: 'key_date', label: 'Key date', found: true, plain_text: polish(d?.plain, type), clause_numbers: validRefs(d?.clauses) }))
-    .filter((d) => d.plain_text && d.clause_numbers.length)
-    .slice(0, 3);
+  return items.filter(Boolean);
+}
 
-  return [...items, ...dates];
+// Second try for a point that failed the quote check: the AI sees what was wrong and the parts
+// of the contract it cited (plus any schedule they mention), and must quote every fact or drop it.
+async function repair(clauses, label, plain, cited, why) {
+  const parts = cited.length ? withReferencedParts(clauses, clauses.filter((c) => cited.includes(c.number))) : clauses;
+  try {
+    return await chatJsonHedged({
+      model: SUMMARY_MODEL,
+      thinking: false,
+      maxTokens: 1000,
+      messages: [
+        { role: 'system', content: REPAIR_SYSTEM },
+        { role: 'user', content: `Topic: ${label}\nPoint: ${plain}\nProblem: ${why}. For each of those items, add a quote that contains it or leave it out.\n\nTHE CONTRACT PARTS:\n${clausesForPrompt(parts).slice(0, 20000)}` },
+      ],
+    }, { hedgeAfterMs: 5000, timeoutMs: Math.min(12000, FUNCTION_LIMIT_MS * 0.2) });
+  } catch {
+    return null;
+  }
 }

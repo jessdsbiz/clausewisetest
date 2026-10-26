@@ -4,24 +4,38 @@
 //             explanation, clause_numbers, quote }] }
 //
 // Safeguards on top of the AI:
-//   - every warning must point to a real clause, and its quote must really be in that clause
+//   - every warning needs an exact quote that is really in the contract, and every number,
+//     amount, date and name in its title and explanation must be in that quote (verify.mjs)
+//   - "Scam sign" is only used for real scam patterns, and the quote must show the pattern
+//     (e.g. a payment for "pay to start"); other terms are at most Medium
 //   - wording that calls a contract safe, illegal or a scam is removed
-//   - a plain rule adds "no UEN" when the contract has none (the AI often misses absences)
+//   - plain rules (no AI) add "money goes to a person" and "no UEN" signs
 
-import { contractTask, clauseLookup } from '../lib/contract-task.mjs';
-import { RISKS_SYSTEM } from '../lib/prompts.mjs';
+import { contractTask, clauseLookup, withReferencedParts } from '../lib/contract-task.mjs';
+import { RISKS_SYSTEM, RISK_REPAIR_SYSTEM, clausesForPrompt } from '../lib/prompts.mjs';
+import { chatJsonHedged, RISKS_MODEL, FUNCTION_LIMIT_MS } from '../lib/nvidia.mjs';
 import { cleanText } from '../lib/wording.mjs';
+import { checkPoint, norm } from '../lib/verify.mjs';
 
 const LEVELS = ['high', 'medium', 'info'];
-const KINDS = ['scam_sign', 'risky_term'];
-const CATEGORIES = ['pay_to_start', 'personal_account', 'pressure', 'company_details',
-  'non_compete', 'probation', 'one_sided_change', 'fee', 'renewal', 'cancellation', 'other'];
+const CATEGORIES = ['pay_to_start', 'personal_account', 'pressure', 'credentials', 'company_details', 'non_compete',
+  'probation', 'one_sided_change', 'fee', 'renewal', 'cancellation', 'other'];
+
+// The only patterns shown as "Scam sign", and what the quote must contain to prove each one.
+// A medical check ("certified medically fit") has no payment in it, so it can't be "pay to start".
+const SCAM_EVIDENCE = {
+  pay_to_start: /\b(pay|paid|payment|fee|deposit|charge|cost|purchase|buy|transfer)\w*\b|\bS?\$\s?\d/i,
+  personal_account: /\b(account|paynow|transfer|bank)\b/i,
+  pressure: /\b\d+\s*\)?\s*(hours?|hrs?|days?)\b|\b(today|tomorrow|immediately|lapse\w*|expire\w*|withdrawn|no extension)\b|\b(one|two|twenty-four|forty-eight)\b[^.]{0,6}\b(hours?|days?)\b/i,
+  credentials: /\b(password|otp|one-time|pin|singpass|log-?in|passcode)\b/i,
+};
 
 // Used when the AI's title is missing or has to be removed.
 const DEFAULT_TITLES = {
   pay_to_start: 'You must pay before you start',
   personal_account: 'Money goes to a personal account',
   pressure: 'Pressure to decide quickly',
+  credentials: 'Asks for passwords or OTPs',
   company_details: 'Company details are missing',
   non_compete: 'Limits on where you can work next',
   probation: 'Probation terms worth asking about',
@@ -32,15 +46,17 @@ const DEFAULT_TITLES = {
   other: 'A term worth asking about',
 };
 
-const norm = (t) => String(t).replace(/[‘’`]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ').trim().toLowerCase();
-
 export default contractTask({
   field: 'risks',
   system: RISKS_SYSTEM,
+  model: RISKS_MODEL,
+  maxTokens: 3000,
+  // Ultra takes ~15-25s on a long contract; a second request goes out if the first is stuck in the queue.
+  timing: { hedgeAfterMs: Math.round(FUNCTION_LIMIT_MS * 0.5), timeoutMs: FUNCTION_LIMIT_MS - 4000 },
   build: buildRisks,
 });
 
-// "Account name: Tan Wei Ling Bank: Sample Bank…" -> { name: "Tan Wei Ling", number: "5.4" }
+// "Account name: <name> Bank: <bank>…" -> { name, number }
 function findPayeeIn(clauses) {
   for (const c of clauses) {
     const m = c.text.match(/\bAccount (?:name|holder)\s*:\s*([A-Z][A-Za-z'.\-/ ]{1,60}?)(?=\s+(?:Bank|Account|PayNow|Branch|Acc)\b|\s*[\n,;|)]|$)/);
@@ -54,53 +70,94 @@ const findPayee = (clauses) => findPayeeIn(clauses)?.name || null;
 const COMPANY_WORDS = /\b(pte|ltd|limited|llp|inc|corp|company|bank|agency|ministry|board|council|authority|centre|center|society|association|services|solutions|holdings|group)\b/i;
 const simple = (s) => String(s || '').toLowerCase().replace(/\b(pte|ltd|private|limited|llp)\b|[^a-z0-9]/g, '');
 
-function buildRisks(ai, clauses, row) {
+// Second try for a sign that failed the quote check: the AI sees what was wrong and the parts it
+// cited (plus any schedule they mention), and must quote every fact or give up on the sign.
+async function repairSign(clauses, sign, cited, why) {
+  const parts = cited.length ? withReferencedParts(clauses, clauses.filter((c) => cited.includes(c.number))) : clauses;
+  try {
+    return await chatJsonHedged({
+      model: RISKS_MODEL,
+      thinking: false,
+      maxTokens: 800,
+      messages: [
+        { role: 'system', content: RISK_REPAIR_SYSTEM },
+        { role: 'user', content: `Warning sign: ${sign.title}\n${sign.explanation || ''}\nProblem: ${why}. For each of those items, make sure it is inside the quote or leave it out.\n\nTHE CONTRACT PARTS:\n${clausesForPrompt(parts).slice(0, 20000)}` },
+      ],
+    }, { hedgeAfterMs: 5000, timeoutMs: Math.min(12000, FUNCTION_LIMIT_MS * 0.2) });
+  } catch {
+    return null;
+  }
+}
+
+async function buildRisks(ai, clauses, row) {
   const lookup = clauseLookup(clauses);
   const byNumber = new Map(clauses.map((c) => [c.number, c]));
-  const str = (v) => (typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null' ? v.trim().slice(0, 200) : null);
+  const allText = norm(clauses.map((c) => c.text).join('\n'));
+  // Company details are shown as "from your contract", so keep them only if they really are in it.
+  const fromContract = (v) => {
+    const s = typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null' ? v.trim().slice(0, 200) : null;
+    return s && allText.includes(norm(s)) ? s : null;
+  };
 
   const company = {
-    name: str(ai?.company?.name),
-    uen: str(ai?.company?.uen),
-    address: str(ai?.company?.address),
+    name: fromContract(ai?.company?.name),
+    uen: fromContract(ai?.company?.uen),
+    address: fromContract(ai?.company?.address),
     // The AI sometimes leaves the payee out, so read it from an "Account name:" line too.
     // The app relies on it: the Company check shows it, and it stays visible in Risks even
     // when "Hide these too" hides other names.
-    payee: str(ai?.company?.payee) || findPayee(clauses),
+    payee: fromContract(ai?.company?.payee) || findPayee(clauses),
   };
+
+  // Every sign must pass the quote check. One that fails gets one rewrite (all at the same time),
+  // told what was wrong; if that fails too, it is not shown.
+  const refsOf = (s) => [...new Set((Array.isArray(s?.clauses) ? s.clauses : []).map(lookup).filter(Boolean))];
+  const checkSign = (s) => {
+    const title = cleanText(s?.title, 90);
+    const explanation = cleanText(s?.explanation, 260);
+    return { title, explanation, check: checkPoint(clauses, { texts: [title, explanation], quotes: [s?.quote], cited: refsOf(s) }) };
+  };
+  const signs = (Array.isArray(ai?.signs) ? ai.signs : [])
+    .filter((s) => s?.category !== 'company_details') // checked by the rule below instead
+    .slice(0, 9);
+  const checked = await Promise.all(signs.map(async (s) => {
+    const category = CATEGORIES.includes(s?.category) ? s.category : 'other';
+    const first = checkSign(s);
+    if (first.check.ok) return { s, category, ...first };
+    const fixed = await repairSign(clauses, s, refsOf(s), first.check.why);
+    const second = fixed?.title ? checkSign(fixed) : null;
+    console.log(`Warning sign (${category}, "${first.title}") failed the check: ${first.check.why}. Rewrite ${second?.check.ok ? 'passed' : `failed${second ? `: ${second.check.why}` : ''}`}.`);
+    return second?.check.ok ? { s, category, ...second } : null;
+  }));
 
   const seen = new Set();
   const items = [];
-  for (const s of Array.isArray(ai?.signs) ? ai.signs : []) {
-    const category = CATEGORIES.includes(s?.category) ? s.category : 'other';
-    let numbers = [...new Set((Array.isArray(s?.clauses) ? s.clauses : []).map(lookup).filter(Boolean))];
-    if (!numbers.length && category === 'company_details' && byNumber.has('Intro')) numbers = ['Intro'];
-    if (!numbers.length) continue; // every warning must point to a clause
-
-    // Keep the quote only if it really is in the contract. If the AI cited the wrong clause
-    // for it (e.g. 5.4 for the "24 hours" in Acceptance), point to the clause that has it.
-    let quote = typeof s.quote === 'string' && s.quote.trim().length > 3 ? s.quote.trim() : '';
-    if (quote && !norm(byNumber.get(numbers[0]).text).includes(norm(quote))) {
-      const home = clauses.filter((c) => norm(c.text).includes(norm(quote)));
-      if (home.length === 1) numbers = [home[0].number, ...numbers.filter((n) => n !== home[0].number)];
-      else quote = '';
+  for (const { s, category, title, explanation, check } of checked.filter(Boolean)) {
+    // Scam signs only for the real scam patterns, and only when the quote shows it.
+    const scam = category in SCAM_EVIDENCE;
+    if (scam && !SCAM_EVIDENCE[category].test(check.quotes[0])) {
+      console.log(`Scam sign dropped (${category}, "${title}"): the quote does not show it`);
+      continue;
     }
+    // When unsure, the lower level: only scam signs can be High.
+    let level = LEVELS.includes(s?.level) ? s.level : 'medium';
+    if (scam && level === 'info') level = 'medium';
+    if (!scam && level === 'high') level = 'medium';
 
     // One warning per problem: "pay to start" and "fee" on the same clause are the same problem.
     const group = category === 'fee' ? 'pay_to_start' : category;
-    const key = `${group}:${numbers[0]}`;
+    const key = `${group}:${check.clause_numbers[0]}`;
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const title = cleanText(s.title, 90);
     items.push({
-      level: LEVELS.includes(s.level) ? s.level : 'medium',
-      kind: KINDS.includes(s.kind) ? s.kind : 'risky_term',
+      level,
+      kind: scam ? 'scam_sign' : 'risky_term',
       category,
       title: title || DEFAULT_TITLES[category],
-      explanation: cleanText(s.explanation, 260),
-      clause_numbers: numbers,
-      quote,
+      explanation,
+      clause_numbers: check.clause_numbers,
+      quote: check.quotes[0],
     });
   }
 
@@ -123,18 +180,33 @@ function buildRisks(ai, clauses, row) {
 
   // Rule: a Singapore company's documents normally show its UEN.
   // UEN formats: 201912345K (company), 53012345A (business), T09LL0001B (others).
-  const hasUenInText = clauses.some((c) => /\bUEN\b|\b(19|20)\d{7}[A-Z]\b|\b\d{8}[A-Z]\b|\b[TSR]\d{2}[A-Z]{2}\d{4}[A-Z]\b/.test(c.text));
   // Not for "Other" documents such as government letters, which have no UEN.
-  if (row?.contract_type !== 'other' && !company.uen && !hasUenInText && !items.some((i) => i.category === 'company_details')) {
-    items.push({
-      level: 'medium',
-      kind: 'scam_sign',
-      category: 'company_details',
-      title: 'No company UEN in the contract',
-      explanation: 'Every Singapore company has a UEN. Ask for it, then check the company on ACRA BizFile before you pay or sign.',
-      clause_numbers: [byNumber.has('Intro') ? 'Intro' : clauses[0].number],
-      quote: '',
-    });
+  const hasUenInText = clauses.some((c) => /\bUEN\b|\b(19|20)\d{7}[A-Z]\b|\b\d{8}[A-Z]\b|\b[TSR]\d{2}[A-Z]{2}\d{4}[A-Z]\b/.test(c.text));
+  if (row?.contract_type !== 'other' && !company.uen && !hasUenInText) {
+    const where = byNumber.has('Intro') ? 'Intro' : clauses[0].number;
+    if (company.name && company.address) {
+      // Name and address are there: only the UEN is missing, which is worth checking but common.
+      items.push({
+        level: 'info',
+        kind: 'risky_term',
+        category: 'company_details',
+        title: 'No UEN in the contract',
+        explanation: 'Ask for the company\'s UEN, then check the company on ACRA BizFile before you sign.',
+        clause_numbers: [where],
+        quote: '',
+      });
+    } else {
+      const missing = ['UEN', !company.name && 'company name', !company.address && 'office address'].filter(Boolean);
+      items.push({
+        level: 'medium',
+        kind: 'scam_sign',
+        category: 'company_details',
+        title: 'Company details are missing',
+        explanation: `The contract has no ${missing.join(' or ')}. Ask for them, then check the company on ACRA BizFile before you pay or sign.`,
+        clause_numbers: [where],
+        quote: '',
+      });
+    }
   }
 
   const rank = (i) => LEVELS.indexOf(i.level) * 2 + (i.kind === 'scam_sign' ? 0 : 1);

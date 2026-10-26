@@ -6,6 +6,7 @@
 //   - "13"         a section with no sub-clauses
 //   - "Intro"      text before the first clause (letterhead, greeting)
 //   - "Acceptance" an unnumbered section after the last clause
+//   - "Schedule B" a schedule, annex or appendix (often fee tables and dates), kept whole
 //   - "Para 1"...  paragraphs, for documents with no numbered clauses (letters, notices)
 
 const SUB_CLAUSE = /^(\d{1,2}(?:\.\d{1,2}){1,2})\.?\s+(\S.*)$/; // "4.4 During the…"
@@ -15,16 +16,27 @@ const PAGE_LINE = /^(page\s*)?\d+\s*(of|\/)\s*\d+$/i; // "Page 3 of 9"
 const CONTINUES = /\b(clauses?|sections?|paragraphs?|in|of|and|to|under|per|with)$/i;
 // Short title-like line after the numbered clauses, e.g. "Acceptance", "Employee's Acceptance".
 const LOOSE_HEADING = /^[A-Z][A-Za-z’'&\- ]{2,40}$/;
+// "SCHEDULE B", "Annex 1: Fee Table", "APPENDIX II – PRICES". Words after the label must all start
+// with a capital, so a wrapped sentence like "Schedule A; or" is not taken for a heading.
+const ATTACHMENT = /^(schedule|annex(?:ure)?|appendix|exhibit|attachment)\s+([A-Z]{1,2}|\d{1,2}|[IVX]{1,4})\b\s*[.:–—-]?\s*((?:[A-Z0-9(&][^\s]*\s*)*)$/i;
+
+// "SCHEDULE B" -> "Schedule B"
+const attachmentLabel = (m) => `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()} ${m[2].toUpperCase()}`;
 
 // `keepBlank` keeps empty lines (as '') so paragraph breaks can be seen.
 function cleanLines(text, keepBlank = false) {
-  const lines = text.replace(/\r/g, '').split('\n').map((l) => l.replace(/\s+/g, ' ').trim());
+  // "Page 16 of 18Jessabel Dass (Dec 18, …)": an e-signing footer glued to the page number. Without
+  // the page number, the rest repeats on every page and is dropped below.
+  const lines = text.replace(/\r/g, '').split('\n')
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter((l) => !PAGE_LINE.test(l))
+    .map((l) => l.replace(/^page\s*\d+\s*(of|\/)\s*\d+\s*/i, ''));
 
   // Running headers/footers repeat on every page: drop short lines seen 3+ times.
   const counts = new Map();
   for (const l of lines) if (l && l.length < 120) counts.set(l, (counts.get(l) || 0) + 1);
 
-  return lines.filter((l) => (keepBlank && !l) || (l && !PAGE_LINE.test(l) && !(counts.get(l) >= 3)));
+  return lines.filter((l) => (keepBlank && !l) || (l && !(counts.get(l) >= 3)));
 }
 
 // "5.10" > "5.9": compare clause numbers part by part.
@@ -53,6 +65,7 @@ export function splitClauses(rawText) {
   let sectionTitle = '';
   let lastNumber = '0';
   let numberedSeen = false;
+  let inAttachment = false;
 
   const start = (number, heading, firstLine) => {
     current = { number, heading, lines: firstLine ? [firstLine] : [] };
@@ -63,6 +76,22 @@ export function splitClauses(rawText) {
     const line = lines[i];
     const prev = lines[i - 1] || '';
     const continuing = CONTINUES.test(prev);
+
+    // Schedules, annexes and appendices are kept whole, tables and all: their rows and cells
+    // are not split into clauses, so a question like "when do I pay?" finds the whole fee table.
+    const attachment = !continuing && line.length <= 80 && line.match(ATTACHMENT);
+    if (attachment && !clauses.some((c) => c.number === attachmentLabel(attachment))) {
+      const next = lines[i + 1] || '';
+      const title = attachment[3].trim() || (/^[^a-z]{3,60}$/.test(next) && !ATTACHMENT.test(next) ? next : '');
+      start(attachmentLabel(attachment), title || attachmentLabel(attachment), '');
+      current.attachment = true;
+      inAttachment = true;
+      continue;
+    }
+    if (inAttachment) {
+      current.lines.push(line);
+      continue;
+    }
 
     const sub = !continuing && line.match(SUB_CLAUSE);
     if (sub && after(sub[1], lastNumber)) {
@@ -96,7 +125,8 @@ export function splitClauses(rawText) {
   }
 
   let result = clauses
-    .map((c) => ({ number: c.number, heading: c.heading, text: joinLines(c.lines) }))
+    // Schedules keep their line breaks so each table row stays on its own line.
+    .map((c) => ({ number: c.number, heading: c.heading, text: c.attachment ? c.lines.join('\n').trim() : joinLines(c.lines) }))
     .filter((c) => c.text);
 
   // No numbered clauses (a letter or notice): split by paragraph so every summary point,
