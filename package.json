@@ -1,0 +1,12 @@
+{
+  "name": "clausewise",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ClauseWise explains contracts in plain words, as a comic or out loud. It is not legal advice.",
+  "scripts": {
+    "dev": "netlify dev"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

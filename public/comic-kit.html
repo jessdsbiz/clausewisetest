@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Comic kit preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&family=Patrick+Hand&display=swap">
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; padding: 24px 16px 48px; background: #f4f2fb; color: #1c1433; font-family: "Plus Jakarta Sans", system-ui, sans-serif; }
+    main { max-width: 1040px; margin: 0 auto; }
+    h1 { margin: 0 0 4px; font-size: 1.8rem; letter-spacing: -0.02em; }
+    h2 { margin: 32px 0 6px; font-size: 1.2rem; }
+    p.lead, p.note { margin: 0 0 14px; color: #6b6480; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; }
+    .tile { background: #fff; border-radius: 16px; padding: 10px; box-shadow: 0 1px 2px rgba(43,17,96,.04), 0 8px 24px rgba(43,17,96,.06); text-align: center; }
+    .tile small { display: block; margin-top: 4px; color: #6b6480; font-size: .78rem; font-weight: 700; }
+    .fig { width: 110px; }
+    .fig svg { width: 100%; height: auto; display: block; }
+    .pair { display: flex; gap: 4px; align-items: flex-end; }
+    .pair .fig { width: 100px; }
+    .scene { width: 320px; }
+    .scene svg { width: 100%; height: auto; display: block; border-radius: 10px; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #ede9fe; color: #5b21b6; font-size: .72rem; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Comic kit preview</h1>
+    <p class="lead">Backgrounds and supporting characters for the Comic tab, shown next to Mei. Mei is drawn by <code>mei.js</code> exactly as supplied.</p>
+
+    <h2>Mei (reference, from mei.js)</h2>
+    <p class="note">6 expressions in the office outfit, then the 4 outfits used per contract type.</p>
+    <div class="row" id="mei-expr"></div>
+    <div class="row" id="mei-outfits" style="margin-top:12px"></div>
+
+    <h2>Supporting characters next to Mei</h2>
+    <p class="note">Same round head, big eyes and flat colours as Mei, with different hair, skin tones, clothes and props so they never look like her. Each has 3 moods: smile, neutral and stern.</p>
+    <div class="row" id="cast"></div>
+
+    <h2>Backgrounds</h2>
+    <p class="note">Flat pastel scenes, empty and with characters placed as they would be in a panel.</p>
+    <div class="row" id="backgrounds"></div>
+
+    <h2>Sample panels with speech bubbles</h2>
+    <div class="row" id="samples"></div>
+  </main>
+
+  <script src="/js/mei.js"></script>
+  <script type="module">
+    import { BACKGROUNDS, CHARACTERS, characterSvg, composePanel } from '/js/comic-kit.js';
+
+    const tile = (inner, label, cls = 'fig') => `<div class="tile"><div class="${cls}">${inner}</div><small>${label}</small></div>`;
+
+    document.getElementById('mei-expr').innerHTML = window.MEI_EXPRESSIONS
+      .map((e) => tile(renderMei({ expression: e, outfit: 'office' }), e)).join('');
+    const outfitFor = { office: 'Job offer', casual: 'Rental', hoodie: 'Phone / Subscription', smart: 'Loan' };
+    document.getElementById('mei-outfits').innerHTML = window.MEI_OUTFITS
+      .map((o) => tile(renderMei({ expression: 'happy', outfit: o, holding: o === 'hoodie' ? 'phone' : o === 'office' ? 'paper' : 'none' }), `${o} · ${outfitFor[o]}`)).join('');
+
+    const cast = [['boss', 'office', 'The boss'], ['landlord', 'casual', 'The landlord'], ['shop_staff', 'hoodie', 'Phone shop staff']];
+    document.getElementById('cast').innerHTML = cast.map(([name, outfit, label]) => `
+      <div class="tile">
+        <div class="pair">
+          <div class="fig">${renderMei({ expression: 'happy', outfit })}</div>
+          ${['smile', 'neutral', 'stern'].map((m) => `<div class="fig">${characterSvg(name, m)}</div>`).join('')}
+        </div>
+        <small>Mei (${outfit}) · ${label}: smile, neutral, stern</small>
+      </div>`).join('');
+
+    const scenes = [
+      ['office', { outfit: 'office', expression: 'happy', holding: 'paper' }, 'boss'],
+      ['hdb_room', { outfit: 'casual', expression: 'thinking' }, 'landlord'],
+      ['phone_shop', { outfit: 'hoodie', expression: 'confused', holding: 'phone' }, 'shop_staff'],
+      ['bank_counter', { outfit: 'smart', expression: 'worried', holding: 'paper' }, null],
+      ['home_desk', { outfit: 'casual', expression: 'relieved', holding: 'phone' }, null],
+    ];
+    document.getElementById('backgrounds').innerHTML = scenes.map(([bg, mei, other]) => `
+      ${tile(`<svg viewBox="0 0 320 240">${BACKGROUNDS[bg]()}</svg>`, `<span class="tag">${bg}</span> empty`, 'scene')}
+      ${tile(composePanel({ background: bg, mei, other }), `<span class="tag">${bg}</span> with Mei${other ? ' + ' + other.replace('_', ' ') : ''}`, 'scene')}`).join('');
+
+    document.getElementById('samples').innerHTML = [
+      tile(composePanel({ background: 'office', mei: { outfit: 'office', expression: 'shocked', holding: 'paper' }, other: 'boss', otherMood: 'stern', speech: { who: 'other', text: 'Pay S$350 before you start.' } }), 'Boss speaking', 'scene'),
+      tile(composePanel({ background: 'phone_shop', mei: { outfit: 'hoodie', expression: 'worried', holding: 'phone' }, other: 'shop_staff', otherMood: 'neutral', speech: { who: 'mei', text: 'Leaving early costs S$500?' } }), 'Mei speaking', 'scene'),
+    ].join('');
+    document.title = 'done';
+  </script>
+</body>
+</html>

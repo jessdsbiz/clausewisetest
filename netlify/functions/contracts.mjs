@@ -1,0 +1,136 @@
+// /.netlify/functions/contracts
+//   GET              -> list this device's contracts
+//   GET    ?id=...   -> one contract with its text
+//   POST   (json)    -> save { raw_text, file_name, source_type, choices }
+//   PATCH  ?id=...   -> change { language, explain_mode, hide_personal }
+//   DELETE ?id=...   -> delete the contract and every saved result
+//
+// The original PDF or photo is never uploaded or stored: only the extracted text, which the
+// browser has already masked (NRIC/FIN and bank/card numbers) and the server masks again here.
+
+import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
+import {
+  selectContracts, insertContract, updateContract, deleteContractRow, removeFile,
+} from '../lib/supabase.mjs';
+import { splitClauses } from '../lib/clauses.mjs';
+import { hidePersonalNumbers } from '../../public/js/privacy.js';
+
+const MAX_TEXT_CHARS = 200_000;
+
+const CONTRACT_TYPES = ['job_offer', 'rental', 'phone_subscription', 'loan', 'business', 'other'];
+const EXPLAIN_MODES = ['plain', 'comic', 'audio'];
+const LANGUAGES = ['en', 'zh', 'ms', 'ta'];
+const SOURCE_TYPES = { pdf: 'application/pdf', photo: 'image/jpeg' };
+
+const LIST_FIELDS = 'id,title,contract_type,explain_mode,language,source_type,file_name,status,created_at';
+const DETAIL_FIELDS = `${LIST_FIELDS},mime_type,raw_text,clauses,summary,risks,comics,chat,translations,personal`;
+
+export default async (req) => {
+  try {
+    const deviceId = requireDevice(req);
+    const id = contractIdParam(req);
+
+    // `return await` so errors from these land in the catch below.
+    switch (req.method) {
+      case 'GET':
+        return await (id ? getOne(deviceId, id) : list(deviceId));
+      case 'POST':
+        return await create(deviceId, req);
+      case 'PATCH':
+        if (!id) throw new HttpError(400, 'Missing contract ID.');
+        return await change(deviceId, id, req);
+      case 'DELETE':
+        if (!id) throw new HttpError(400, 'Missing contract ID.');
+        return await remove(deviceId, id);
+      default:
+        throw new HttpError(405, 'Method not allowed.');
+    }
+  } catch (err) {
+    return errorResponse(err);
+  }
+};
+
+async function list(deviceId) {
+  const rows = await selectContracts(
+    `select=${LIST_FIELDS}&device_id=eq.${deviceId}&order=created_at.desc`);
+  return Response.json(rows);
+}
+
+async function getOne(deviceId, id) {
+  const [row] = await selectContracts(`select=${DETAIL_FIELDS}&id=eq.${id}&device_id=eq.${deviceId}`);
+  if (!row) throw new HttpError(404, 'Contract not found. It may have been deleted.');
+  return Response.json(row);
+}
+
+async function create(deviceId, req) {
+  const body = await req.json().catch(() => null);
+  if (!body) throw new HttpError(400, 'Upload was not readable.');
+
+  const contractType = pick(body, 'contract_type', CONTRACT_TYPES);
+  const explainMode = pick(body, 'explain_mode', EXPLAIN_MODES);
+  const language = pick(body, 'language', LANGUAGES);
+  const sourceType = pick(body, 'source_type', Object.keys(SOURCE_TYPES));
+
+  // Backstop: the browser already masked the text, but never save an NRIC/FIN or an
+  // account number by mistake.
+  const rawText = hidePersonalNumbers(String(body.raw_text || '').slice(0, MAX_TEXT_CHARS)).text;
+  if (rawText.trim().length < 20) throw new HttpError(422, 'We could not read any text in this file.');
+
+  const fileName = String(body.file_name || 'contract').slice(0, 200);
+  const row = await insertContract({
+    device_id: deviceId,
+    title: fileName.replace(/\.[^.]+$/, '').replace(/\.pdf$/i, '').slice(0, 120) || 'Contract',
+    contract_type: contractType,
+    explain_mode: explainMode,
+    language,
+    source_type: sourceType,
+    file_path: '', // the original file is not stored
+    file_name: fileName,
+    mime_type: SOURCE_TYPES[sourceType],
+    raw_text: rawText,
+    clauses: splitClauses(rawText),
+    status: 'uploaded',
+  });
+  return Response.json({ id: row.id }, { status: 201 });
+}
+
+async function change(deviceId, id, req) {
+  const body = await req.json().catch(() => ({}));
+  const fields = {};
+  if (body.language !== undefined) {
+    if (!LANGUAGES.includes(body.language)) throw new HttpError(400, 'Please choose a valid language.');
+    fields.language = body.language;
+  }
+  if (body.explain_mode !== undefined) {
+    if (!EXPLAIN_MODES.includes(body.explain_mode)) throw new HttpError(400, 'Please choose a valid explain mode.');
+    fields.explain_mode = body.explain_mode;
+  }
+  const [row] = await selectContracts(`select=id,personal&id=eq.${id}&device_id=eq.${deviceId}`);
+  if (!row) throw new HttpError(404, 'Contract not found. It may have been deleted.');
+
+  // "Hide these too" on the Personal details screen.
+  if (body.hide_personal !== undefined) {
+    if (!row.personal) throw new HttpError(409, 'Personal details have not been checked yet.');
+    fields.personal = { ...row.personal, hide_extra: body.hide_personal === true };
+  }
+  if (!Object.keys(fields).length) throw new HttpError(400, 'Nothing to change.');
+  await updateContract(`id=eq.${id}&device_id=eq.${deviceId}`, fields);
+  return Response.json({ ok: true });
+}
+
+async function remove(deviceId, id) {
+  const [row] = await selectContracts(`select=file_path&id=eq.${id}&device_id=eq.${deviceId}`);
+  if (!row) throw new HttpError(404, 'Contract not found. It may have already been deleted.');
+
+  // Contracts uploaded before files stopped being stored still have one: remove it first.
+  // If that fails the row stays, so the user can simply try again.
+  if (row.file_path) await removeFile(row.file_path);
+  await deleteContractRow(`id=eq.${id}&device_id=eq.${deviceId}`);
+  return Response.json({ deleted: true });
+}
+
+function pick(body, name, allowed) {
+  const value = String(body[name] || '');
+  if (!allowed.includes(value)) throw new HttpError(400, `Please choose a valid ${name.replace('_', ' ')}.`);
+  return value;
+}

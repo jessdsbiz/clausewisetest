@@ -1,0 +1,122 @@
+# Product Requirements Document
+
+## 1. Project Overview
+**Project:** ClauseWise
+**Challenge Track:** Law
+**Build Format:** Deployable web application (mobile-first, installable on phones as a PWA)
+
+## 2. Problem Statement
+Job seekers, employees, tenants, freelancers, consumers and small business owners are often asked to sign contracts they don’t fully understand. Employment, rental, mobile phone, loan and business agreements are long, full of legal terms like indemnity, liability, non-compete, probation and automatic renewal, and the important conditions are easy to miss. So people overlook penalties, restrictive clauses, hidden fees, deposit deductions, early termination charges and termination conditions. A job seeker might agree to a broad non-compete without knowing it, or accept being let go at the end of probation without the notice pay their contract gives them. A tenant might not understand when their deposit can be kept, and a phone customer might not realise their plan locks them in for 12 or 24 months with a fee to leave early. Many also can’t spot scam signs, like being asked to pay a fee to start a job or to send money to a personal account. Asking a lawyer feels expensive, slow or intimidating, especially when you don’t know what to ask. And text-heavy contracts are even harder for people with limited legal knowledge, language barriers or different learning styles. People need an easier way to understand what they’re signing, see the risks and decide before it’s too late.
+
+### Evidence / Why this matters
+Contract misunderstandings often end up as disputes. MOM’s Employment Standards Report 2025 recorded 10,801 salary claims and 2,168 wrongful dismissal claims in 2025, the highest since 2019. Many of these come down to what the contract says about pay, notice and termination.
+
+Real cases show that the contract decides who keeps the money. In 2026, a supporting officer at a Singapore law firm was told two days before his probation ended that he wouldn’t be kept on, and was offered only 7 days’ “goodwill” pay. Because his contract required one month’s notice during probation, he claimed and won about S$2,900 at the Employment Claims Tribunal, a decision upheld on appeal (CNA, Aug 2026). In another 2026 case, an employee who left without serving his six-month notice period was ordered to pay his former employer S$36,000 plus interest (Aerospace Solutions v Low Eng Wah [2026] SGMC 89). Same type of clause, opposite results: the difference is understanding what was signed. Most workers in the first case would have taken the 7 days and lost the rest.
+
+Tenants face the same problem. In a 2026 Small Claims Tribunal case, an HDB landlord withheld two tenants’ $800 deposits, and the magistrate found none of the landlord’s reasons justified keeping them.
+
+Phone and subscription contracts are a growing issue too. Telecommunications complaints to the Consumers Association of Singapore (CASE) rose from 529 in 2023 to 710 in 2024, and telcos were the top sector for complaints about hard-to-cancel subscriptions in 2024 and 2025. In one reported case, a customer picked a “no contract” plan online but was later told he was on a 12-month contract and would have to pay early termination charges to leave.
+
+Singapore already has MOM, the Tripartite Alliance for Dispute Management (TADM), CASE and Pro Bono SG to help people with employment, consumer and legal problems, which shows people need help understanding their rights and obligations, but this help usually comes after something has gone wrong. Scams are a risk too: the Singapore Police Force’s Annual Scam and Cybercrime Brief 2025 recorded 41,974 scam cases and $913.1 million lost in 2025, and job scams were the third-biggest scam type by money lost.
+
+Common problem areas include probation and termination conditions, salary disputes, rental deposits, early termination and cancellation fees, and unclear responsibilities. Many people also don’t read terms and conditions at all; “does anyone actually read the terms and conditions?” is a common question online (e.g. Reddit r/NoStupidQuestions). Terms like indemnity, liability, non-compete, probation and automatic renewal need to be explained in everyday language so anyone can understand them.
+
+## 3. Target User
+**Primary user:** Job seeker, young worker, tenant or phone plan customer in Singapore (including fresh graduates and migrant workers) who has been given a contract to sign, has no legal background, and may be more comfortable in Chinese, Malay, Tamil or another language than legal English
+**Context:** Has just received a job offer, tenancy agreement, mobile phone plan or loan document, often told to sign within a day or two (or on the spot at a phone shop), reading it alone on their phone with no one who knows the law to ask
+**Goal:** Understand what they’re agreeing to, spot anything risky or suspicious, and sign (or say no) with confidence
+**Pain points:** Contracts are long and full of legal terms; important conditions are buried in the small print; they don’t know what questions to ask; a lawyer feels too expensive or intimidating for “just” a job offer, lease or phone plan; probation and notice terms are easy to misread; phone plans hide the contract length, early termination fee and cancellation window in the terms and conditions; scam contracts look real; and the contract is usually only in English
+
+## 4. Current Journey
+- User gets a long contract (e.g. a 15-page job offer, a tenancy agreement or a 24-month phone plan) and is told to sign quickly, sometimes within 24 hours or on the spot
+- They don’t understand terms like indemnity, non-compete, probation or automatic renewal, don’t know who to ask, and seeing a lawyer feels costly, so they skim it or sign without reading
+- Problems show up later (a long notice period, being let go at the end of probation without notice pay, deposit deductions, an early termination fee, a phone plan that can only be cancelled in a narrow window, a restrictive clause, or a fake job offer that asks for an upfront fee) when it’s too late, leaving them with lost money or a dispute
+
+## 5. Ideal AI-Enabled Journey
+- Before signing, user taps “Scan a contract”, uploads the PDF or snaps a photo (hiding their NRIC), and picks the contract type and language
+- ClauseWise reads it and shows a plain-words summary (pay, hours, probation, notice, contract length, fees, cancellation window and key dates), with each point tagged to its clause
+- The risks and scam check shows any warning signs with a priority level and the source clause (e.g. “You must pay S$350 before you start”, Clause 5.3, or “Early termination fee stays at S$500 even near the end of your plan”, Clause 8.1)
+- User picks a confusing clause and sees it as a 4-panel comic, or listens to it read aloud, with the original words shown underneath
+- User asks the AI chatbot follow-up questions, gets a “Before you sign” checklist, then signs, negotiates, checks further or walks away
+
+## 6. Proposed Solution
+**One-line value proposition:** ClauseWise reads a contract before you sign it (a job offer, tenancy, phone plan or loan) and explains it in plain words, as a comic or out loud in your language. It also flags possible scam signs and risky terms, and lets you ask an AI chatbot about any clause.
+
+The user opens ClauseWise and taps “Scan a contract”, then uploads a PDF or takes a photo. They choose how to explain it (Plain words, Comic or Audio), the language (English, 中文, Melayu, தமிழ், and more) and the contract type (Job offer, Rental, Phone / Subscription, Loan, Business or Other). The contract overview opens with four tabs. Summary shows the key points in plain words (e.g. “Even during probation, they must give you 1 month’s notice or pay you for it” or “This plan lasts 24 months. To cancel, tell them in the last 7 days before it ends”), each tagged to its clause, plus key dates like “Reply within 24 hrs”. Risks shows a scam check banner (e.g. “4 possible scam signs. Don’t pay anything yet.”), each sign with its priority and source, and buttons to look up the company on ACRA, call the ScamShield Helpline (1799), report a scam, or contact CASE for phone and subscription issues. Comic lets the user pick a clause and see it as a 4-panel story, with the original words and any assumptions under each panel. Ask opens the AI chatbot, which answers questions about this contract and quotes the clause, with an option to request a real expert. Finally, “Before you sign” gives a checklist that can be turned into a polite message to the employer, landlord or telco, or shared with family. Every screen says ClauseWise explains contracts and isn’t legal advice.
+
+### Differentiation
+Unlike a general AI chatbot or a plain document summariser, ClauseWise shows people what a clause could mean in real life through short comics, so they see it instead of just reading about it. Users choose how they want it explained (plain words, comic or audio) and in which language. Every explanation, warning and comic panel links back to the exact clause, so users can check it themselves. It’s built for Singapore: scam signs based on SPF and ScamShield advice, phone plan checks based on IMDA’s Contract Period and Early Termination Guidelines, and links to ACRA, MOM, TADM, CASE and Pro Bono SG for next steps. It’s also frugal: free browser read-aloud and reusable comic templates keep costs low, so basic checks can stay free for students and low-income workers.
+
+## 7. AI Design
+### AI capabilities
+- Text / LLM
+- Image / Vision
+- Knowledge search / RAG
+- Image generation
+- Speech / voice
+
+### Why AI is appropriate
+Contracts come as long PDFs or phone photos, every company words things differently, and the meaning depends on context. A fixed keyword list can’t read a scanned contract, explain what a notice or probation clause means for this person, notice that the payee is a personal name instead of the company, work out whether a phone plan’s early termination fee goes down over time, or turn a clause into a scene someone can picture. AI can read the whole document, find the terms that matter, explain them in the user’s language and answer follow-up questions. It is grounded in the contract’s own text and a small set of official Singapore sources (MOM, SPF/ScamShield, ACRA, CASE and IMDA), so every answer points back to a real clause instead of being made up.
+
+### AI tasks
+Reads the uploaded PDF or photo (OCR / vision) and splits it into numbered clauses; pulls out pay, hours, probation, notice period, contract length, fees, deposits, early termination charges, cancellation window, non-compete, renewal, payment details and dates; checks these against a list of warning signs from SPF/ScamShield, MOM and IMDA guidance (e.g. paying to start a job, payment to a personal account, pressure to sign within 24 hours, no UEN or office address, a very broad non-compete, a probation clause with no notice period, auto-renewal onto a pricier plan, a large or fixed early termination fee that doesn’t go down over time, a very short cancellation window, a phone contract longer than 24 months) and labels each High, Medium or Info with the clause it came from; rewrites clauses in plain words in the chosen language; writes a 4-panel comic storyboard for a chosen clause, with captions, stated assumptions and the source clause, then illustrates it; answers chatbot questions using only the contract and checked sources; and builds a “Before you sign” checklist of things to check and ask.
+
+## 8. MVP Scope
+### Must Have
+- Upload a PDF or snap a photo of a contract, with a reminder to hide NRIC and an option to delete it anytime
+- Plain-words summary of key terms (pay, hours, probation, notice, contract length, fees, dates), each linked to the original clause
+- Risks and scam check: flags warning signs with High / Medium / Info priority and the source clause, plus ACRA, ScamShield 1799 and CASE links
+- Comic explanation: turns a chosen clause into a 4-panel comic with the original words and assumptions shown
+- AI chatbot that answers questions about the uploaded contract and points to the clause it used
+- “Explain it as” plain words, comic or audio (read-aloud), in English, Chinese, Malay and Tamil
+
+### Nice to Have
+- “Before you sign” checklist, with “Turn into a polite message” and “Share with family”
+- Deadlines tab with reply-by, start date, probation end, notice, renewal and cancellation-window dates
+- Early termination fee check for phone plans (e.g. “You’ve served 18 of 24 months, so the fee should be lower now”)
+- Real expert chat using clearly labelled demo accounts
+- More languages for migrant workers, e.g. Burmese
+
+### Future
+- Verified network of lawyers, HR and property professionals for paid consultations
+- Checks reviewed by legal professionals for each contract type, covering all contract categories
+- Direct referral to MOM, TADM, Pro Bono SG, CASE and ScamShield, plus business plans for SMEs and HR teams
+
+## 9. Functional Requirements
+- FR1: A user can upload a PDF or take a photo of a contract, sees a reminder to hide their NRIC first, and can delete the upload at any time.
+- FR2: The Summary tab shows pay, hours, probation, notice, contract length, fees and key dates in plain words, each tagged with its clause number.
+- FR3: The Risks tab lists warning signs labelled High, Medium or Info with the source clause, plus working ACRA, ScamShield 1799 and CASE links. It never says a contract is “safe”, “illegal” or “a scam”.
+- FR4: The Comic tab turns a chosen clause into a 4-panel comic showing the original clause text, stated assumptions and the label “AI-generated example scene”.
+- FR5: The Ask tab answers questions using only the uploaded contract, quotes the clause it used, and says “I’m not sure, ask an expert” when it can’t find the answer.
+- FR6: The user can switch between plain words, comic and audio, in English, Chinese, Malay and Tamil.
+
+## 10. Technical Approach
+**Likely stack:** Plain HTML, CSS and JavaScript (mobile-first, purple ClauseWise branding), set up as a PWA so it installs on phones. pdf.js to read PDFs and an NVIDIA Build vision model for photos. NVIDIA Build models (called through Netlify Functions, with the API key kept in .env) for summaries, risk flags, the chatbot, translation and comic storyboards. Reusable illustrated templates or an NVIDIA Build image model for comic panels. JavaScript rules for common scam signs and phone plan terms, and a small knowledge base of MOM, TADM, ScamShield, ACRA, CASE and IMDA (Contract Period and Early Termination Guidelines) guidance for grounding. Browser Web Speech API for audio, Supabase for storage, GitHub for version control, and Netlify hosting.
+**Delivery format:** Deployable web application (mobile-first PWA)
+
+## 11. Responsible AI & Risk Controls
+- Human review / approval
+- Privacy / data minimisation
+- Source citation / grounding
+- Hallucination mitigation
+- AI-generated media labelling
+
+### Primary risk and mitigation
+The biggest risk is the AI getting a clause wrong (changing its meaning or missing an exception), a comic inventing an obligation, or the user treating ClauseWise as legal advice or a “safe to sign” stamp. Mitigation: every explanation, warning and comic panel links to the exact original clause so users can check it (grounding). Comics state their assumptions (e.g. “Assumed: Mei has passed probation”) and are labelled “AI-generated example scene”. Labels show review priority only; ClauseWise never says a contract is safe, illegal or a scam. Where a check is based on guidelines rather than law (e.g. IMDA’s advisory guidelines on phone contracts), it says “worth asking about”, not “this is not allowed”. The chatbot only answers from the contract and checked sources, and says “I’m not sure, ask an expert” when it can’t find the answer (hallucination controls). Every screen says “not legal advice”, and for big decisions the app suggests a qualified professional and links to TADM, Pro Bono SG, CASE and ScamShield (human review). Users are reminded to hide their NRIC before scanning, the demo uses fictional contracts only, uploads can be deleted anytime, and personal details are not stored (privacy).
+
+## 12. Success & Validation
+**Expected impact:** Help people understand what they’re signing and spot risky terms and scam signs before they sign, so fewer end up losing money or in disputes. This supports SDG 8 (decent work), SDG 10 (reduced inequalities) and SDG 16 (access to justice).
+**Primary metric:** In user testing, increase the share of key terms and planted warning signs users correctly identify in a sample contract, from an estimated 40% reading alone to over 80% with ClauseWise
+**Secondary metric:** Users understand a chosen clause within 60 seconds, and at least 4 in 5 test users say the comic or plain-words view made the contract easier to understand
+**Prototype test:** Use three fictional contracts: an 8-page job offer (BrightPath Solutions) with a probation clause requiring one month’s notice, a tenancy agreement, and a 24-month phone plan (SwiftMobile) with a fixed early termination fee, a 7-day cancellation window and auto-renewal onto a pricier plan. Each has 6 key terms and 4 planted scam or risk signs. Give them to 10–12 participants (students, young workers, and at least two who prefer Chinese, Malay or Tamil). Half read the contract on their own for 5 minutes; the other half use ClauseWise. Both groups answer the same 8-question quiz. Compare scores, time taken and how confident they feel, and note which “Explain it as” mode they used. Also ask our mentor or a law lecturer to check the AI’s explanations of 20 clauses for accuracy.
+
+## 13. Vibe Coding Build Instruction
+Build the MVP described above as a mobile-first, deployable web app (PWA) using the stack in Section 10. Follow the ClauseWise design: purple branding, Home / Contracts / Deadlines / Experts navigation, and Summary / Risks / Comic / Ask tabs. Prioritise the complete end-to-end user journey and Must Have features before any Nice to Have items. Implement only the AI capabilities listed above, include the stated responsible-AI controls, and make the primary success metric observable in the demo. Ground every AI output in the uploaded contract and the checked sources, and link each output to its clause. Demo with the fictional BrightPath job offer.
+
+## 14. Definition of Done
+- A user can complete the core journey from upload to summary, risk check, comic and chatbot answer without the demo breaking.
+- AI performs the intended task meaningfully and reliably enough for a live demo.
+- At least the Must Have features are working, tested on the fictional BrightPath job offer.
+- Responsible AI safeguards are visible where relevant, including the “not legal advice” and “warning signs, not a final verdict” notices.
+- The application is responsive, installable on a phone and demo-ready.
+- The team can explain the architecture, AI role, limitations and expected impact.
