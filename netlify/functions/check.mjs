@@ -20,7 +20,10 @@ import { cleanText, cleanAdvice } from '../lib/wording.mjs';
 import { checkPoint, locateQuote, unsupportedFacts, norm } from '../lib/verify.mjs';
 import { CATEGORIES, SCAM_EVIDENCE, DEFAULT_TITLES, clauseOnly } from './risks.mjs';
 
-const CHECK_MS = 15000; // NVIDIA gets 15s; then Claude Haiku checks instead
+// How long to wait for NVIDIA before using Claude's check (started at the same time). The app waits
+// at most 20s for the whole double check, so the first check gets 10s and the second look 7s.
+const CHECK_MS = 10000;
+const RECHECK_MS = 7000;
 // Only the most serious missed risks become new warnings, so the list stays focused.
 const MAX_MISSED = 2;
 const FIELDS = 'contract_type,language,raw_text,clauses,summary,risks,tailored,situation,checks,translations';
@@ -79,29 +82,33 @@ function evidenceProblem(v, it, clauses) {
 }
 
 // Asks the second checker. NVIDIA first (unless SECOND_CHECKER=claude); Claude Haiku if NVIDIA is
-// off, fails or takes longer than 15s. `system(provider)` gives each its prompt. -> { ai, checker, backup, ms }
-async function askChecker(prefer, system, user, timeLeft, maxTokens) {
+// off, fails or takes longer than `nvidiaWaitMs` (Claude runs alongside). `system(provider)` gives each its prompt. -> { ai, checker, backup, ms }
+async function askChecker(prefer, system, user, timeLeft, maxTokens, nvidiaWaitMs = CHECK_MS) {
   const started = Date.now();
   const messages = (provider) => [{ role: 'system', content: system(provider) }, { role: 'user', content: user }];
-  // Why Claude checked instead (shown in the app): off, timeout or error.
-  let backup = prefer === 'nvidia' ? null : 'off';
-  if (prefer === 'nvidia') {
-    try {
-      const ai = await jsonFrom('nvidia', { model: NVIDIA_CHECK_MODEL, thinking: false, maxTokens, messages: messages('nvidia') }, {
-        hedgeAfterMs: CHECK_MS + 5000, // one request only: no second try inside the 15s
-        timeoutMs: Math.min(CHECK_MS, timeLeft() - 8000),
-      });
-      return { ai, checker: 'nvidia', backup: null, ms: Date.now() - started };
-    } catch (err) {
-      backup = err.status === 504 ? 'timeout' : 'error';
-      console.log(`Second check: NVIDIA ${backup === 'timeout' ? 'took longer than 15 seconds' : 'did not answer'} (${err.message}); Claude checks instead.`);
-    }
-  }
-  const ai = await jsonFrom('claude', { model: CLAUDE_CHECK_MODEL, thinking: false, maxTokens: maxTokens * 2, messages: messages('claude') }, {
+  // Claude starts at the same time as NVIDIA, so if NVIDIA is slow or fails its answer is already
+  // (nearly) there: the whole double check then fits the 20 seconds the app waits for it.
+  const claude = jsonFrom('claude', { model: CLAUDE_CHECK_MODEL, thinking: false, maxTokens: maxTokens * 2, messages: messages('claude') }, {
     hedgeAfterMs: 6000,
     timeoutMs: Math.max(4000, Math.min(12000, timeLeft() - 2000)),
     busyMessage: 'The second check took too long. Please try again.',
   });
+  claude.catch(() => {}); // only used if NVIDIA doesn't answer in time
+  // Why Claude checked instead (shown in the judge view): off, timeout or error.
+  let backup = prefer === 'nvidia' ? null : 'off';
+  if (prefer === 'nvidia') {
+    try {
+      const ai = await jsonFrom('nvidia', { model: NVIDIA_CHECK_MODEL, thinking: false, maxTokens, messages: messages('nvidia') }, {
+        hedgeAfterMs: nvidiaWaitMs + 5000, // one request only: no second try
+        timeoutMs: Math.min(nvidiaWaitMs, timeLeft() - 8000),
+      });
+      return { ai, checker: 'nvidia', backup: null, ms: Date.now() - started };
+    } catch (err) {
+      backup = err.status === 504 ? 'timeout' : 'error';
+      console.log(`Second check: NVIDIA ${backup === 'timeout' ? `took longer than ${nvidiaWaitMs / 1000} seconds` : 'did not answer'} (${err.message}); Claude's check is used.`);
+    }
+  }
+  const ai = await claude;
   return { ai, checker: 'claude', backup, ms: Date.now() - started };
 }
 
@@ -315,7 +322,7 @@ async function runFix(row, clauses, lang, timeLeft) {
     const recheckParts = withReferencedParts(clauses, clauses.filter((c) => toRecheck.some((t) => t.clause_numbers.includes(c.number))));
     try {
       const prefer = row.checks.checker === 'nvidia' ? SECOND_CHECKER : 'claude';
-      const r = await askChecker(prefer, itemsPrompt(lang), `ITEMS TO CHECK:\n${toRecheck.map(itemLine).join('\n')}\n\nTHE CONTRACT:\n${clausesForPrompt(recheckParts).slice(0, 25000)}`, timeLeft, 1200);
+      const r = await askChecker(prefer, itemsPrompt(lang), `ITEMS TO CHECK:\n${toRecheck.map(itemLine).join('\n')}\n\nTHE CONTRACT:\n${clausesForPrompt(recheckParts).slice(0, 25000)}`, timeLeft, 1200, RECHECK_MS);
       const list = (Array.isArray(r.ai?.wrong) ? r.ai.wrong : Array.isArray(r.ai?.items) ? r.ai.items : []).filter((v) => v?.verdict === 'wrong');
       for (const v of list) console.log(`Second check: the fix for ${v?.id} was checked again and is still wrong: ${String(v?.reason ?? '').slice(0, 120)}`);
       const verdicts = new Map(list.map((v) => [String(v?.id ?? '').trim(), v]));
@@ -344,19 +351,19 @@ async function runFix(row, clauses, lang, timeLeft) {
       target.clause_numbers = c.clauses;
     }
     target.checked = fixed ? 'fixed' : 'unclear';
-    results.push({ id: w.id, part: w.part, label: w.label, reason: w.reason, before: w.before, after: fixed ? (w.part === 'risks' ? `${c.title}. ${c.explanation}` : c.text) : null, status: target.checked, clause_numbers: target.clause_numbers });
+    results.push({ id: w.id, part: w.part, label: w.label, reason: w.reason, before: w.before, after: fixed ? (w.part === 'risks' ? `${c.title}. ${c.explanation}` : c.text) : null, status: target.checked, clause_numbers: target.clause_numbers, planted: Boolean(target.demo_mistake) });
   }
   for (const d of disputed) {
     const target = risks.items[d.index];
     if (!target) continue;
     target.checked = 'disputed';
     target.doubt = d.reason;
-    results.push({ id: d.id, part: d.part, label: d.label, reason: d.reason, before: null, after: null, status: 'disputed', clause_numbers: target.clause_numbers });
+    results.push({ id: d.id, part: d.part, label: d.label, reason: d.reason, before: d.before, after: null, status: 'disputed', clause_numbers: target.clause_numbers });
   }
   added.forEach((a, i) => {
     const status = passed(`new:${i}`) ? 'fixed' : 'unclear';
     risks.items.push({ ...a.item, checked: status });
-    results.push({ id: `risk:${risks.items.length - 1}`, part: 'risks', label: a.item.title, reason: a.m.reason, before: null, after: status === 'fixed' ? `${a.item.title}. ${a.item.explanation}` : null, status, added: true, clause_numbers: a.item.clause_numbers });
+    results.push({ id: `risk:${risks.items.length - 1}`, part: 'risks', label: a.item.title, reason: a.m.reason, before: null, after: status === 'fixed' ? `${a.item.title}. ${a.item.explanation}` : null, status, added: true, clause_numbers: a.item.clause_numbers, planted: Boolean(row.risks?.demo && (a.item.category === 'pay_to_start' || /\bS?\$\s?350\b/.test(`${a.item.title} ${a.item.explanation} ${a.item.quote}`))) });
   });
 
   return {
