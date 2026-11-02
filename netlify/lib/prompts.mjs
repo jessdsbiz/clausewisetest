@@ -276,6 +276,7 @@ Rules:
 For each panel, choose its parts:
 - "background": one of ${Object.entries(COMIC_PARTS.backgrounds).map(([k, v]) => `${k} (${v})`).join(', ')}. Pick the place where that moment happens.
 - "expression": Mei's face, one of ${COMIC_PARTS.expressions.join(', ')}. Match how the moment would feel for her.
+- "risk": "high" if this panel shows a possible scam sign or a high risk, "medium" for a medium risk, "good" for a good outcome for Mei, otherwise "none".
 - "holding": what Mei holds, one of ${COMIC_PARTS.holding.join(', ')} (paper = a letter or contract, phone = messages, payments, apps).
 - "character": who else is there, one of ${Object.entries(COMIC_PARTS.characters).map(([k, v]) => `${k} (${v})`).join(', ')}. Use the one that matches the contract type, or none.
 - "character_mood": one of ${COMIC_PARTS.moods.join(', ')} (only if there is a character).

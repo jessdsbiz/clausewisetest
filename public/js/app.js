@@ -329,24 +329,28 @@ const scanWords = (lang = scan.language) => SCAN_WORDS[lang] || SCAN_WORDS.en;
 const TYPE_WORDS = {
   en: {
     guess: (t) => `We think this is a ${t}. Is that right?`,
+    readOriginal: 'Read the original clause', hideOriginal: 'Hide the original clause',
     looks: (sug, pick) => `This looks like a ${sug}, not a ${pick}.`,
     switchTo: (sug) => `Switch to ${sug}`, keep: (pick) => `Keep ${pick}`,
     note: (pick, sug) => `You chose ${pick}. ClauseWise thinks this is a ${sug}.`, switch: 'Switch',
   },
   zh: {
     guess: (t) => `我们认为这是${t}。对吗？`,
+    readOriginal: '阅读原始条款', hideOriginal: '隐藏原始条款',
     looks: (sug, pick) => `这看起来像是${sug}，而不是${pick}。`,
     switchTo: (sug) => `改为${sug}`, keep: (pick) => `保留${pick}`,
     note: (pick, sug) => `你选择了${pick}。ClauseWise 认为这是${sug}。`, switch: '切换',
   },
   ms: {
     guess: (t) => `Kami fikir ini ialah ${t}. Betulkah?`,
+    readOriginal: 'Baca klausa asal', hideOriginal: 'Sembunyikan klausa asal',
     looks: (sug, pick) => `Ini kelihatan seperti ${sug}, bukan ${pick}.`,
     switchTo: (sug) => `Tukar kepada ${sug}`, keep: (pick) => `Kekalkan ${pick}`,
     note: (pick, sug) => `Anda pilih ${pick}. ClauseWise fikir ini ialah ${sug}.`, switch: 'Tukar',
   },
   ta: {
     guess: (t) => `இது ${t} என்று நினைக்கிறோம். சரியா?`,
+    readOriginal: 'அசல் பிரிவைப் படி', hideOriginal: 'அசல் பிரிவை மறை',
     looks: (sug, pick) => `இது ${sug} போல் தெரிகிறது, ${pick} அல்ல.`,
     switchTo: (sug) => `${sug} ஆக மாற்று`, keep: (pick) => `${pick} ஆக வைத்திரு`,
     note: (pick, sug) => `நீங்கள் ${pick} என்று தேர்ந்தெடுத்தீர்கள். ClauseWise இது ${sug} என்று நினைக்கிறது.`, switch: 'மாற்று',
@@ -870,6 +874,16 @@ screen.addEventListener('input', (e) => {
 // Scan screen buttons for pages, problems and detection.
 function scanClick(e) {
   const btn = e.target.closest('button');
+  // On a contract screen: the original-clause toggle in a comic.
+  if (btn?.matches('[data-toggle-original]')) {
+    const box = document.getElementById(btn.getAttribute('aria-controls'));
+    const open = btn.getAttribute('aria-expanded') !== 'true';
+    btn.setAttribute('aria-expanded', String(open));
+    if (box) box.hidden = !open;
+    const tw = typeWords(shellLang());
+    btn.textContent = open ? tw.hideOriginal : tw.readOriginal;
+    return true;
+  }
   // On a contract screen: "Switch" on the type note (the only button there that this handles).
   if (btn?.matches('[data-type-switch-contract]')) {
     const id = btn.dataset.typeSwitchContract;
@@ -2608,12 +2622,23 @@ const OLD_SCENES = {
 };
 
 // One panel's picture, built from its parts: background, Mei, any supporting character, speech bubble.
-function panelArt(c, panel, translatedSpeech) {
+// Mei's face and the sign beside her follow each panel's risk. Panels saved before "risk" existed use the
+// clause's risk on the key panel.
+const PANEL_FACE = { high: 'worried', medium: 'confused', none: 'relieved', good: 'happy' };
+function panelRisk(c, number, panel, index, panels) {
+  if (panel.risk) return panel.risk;
+  const warn = comicWarning(c, number);
+  const hasKey = panels.some((x) => x.key);
+  return warn && (!hasKey || panel.key) ? warn : 'none';
+}
+
+function panelArt(c, panel, translatedSpeech, risk = 'none') {
   const p = panel.scene ? { ...OLD_SCENES[panel.scene], speech: null } : panel;
   const said = translatedSpeech || p.speech?.text;
   return composePanel({
     background: p.background,
-    mei: { expression: p.expression, outfit: MEI_OUTFIT[c.contract_type] || 'casual', holding: p.holding },
+    mei: { expression: PANEL_FACE[risk] || p.expression, outfit: MEI_OUTFIT[c.contract_type] || 'casual', holding: p.holding },
+    sign: risk === 'none' ? null : risk,
     other: p.character && p.character !== 'none' ? p.character : null,
     otherMood: p.character_mood || 'neutral',
     // Bubble text is drawn inside the picture, so apply "Hide these too" to it here.
@@ -2683,14 +2708,13 @@ function comicBody(c, number) {
     ${languageNote(c, `comic:${number}`)}
     <div class="panels">
       ${comic.panels.map((p, i) => {
-        // The warning goes on the key panel (or every panel if the comic has none), never on the picture.
-        const warn = comicWarning(c, number);
-        const hasKey = comic.panels.some((x) => x.key);
-        const kind = warn && (!hasKey || p.key) ? warn : null;
+        // Each panel's risk drives Mei's face, the sign beside her, and the caption badge (high / medium).
+        const risk = panelRisk(c, number, p, i, comic.panels);
+        const kind = risk === 'high' || risk === 'medium' ? risk : null;
         return `
         <figure class="panel${p.key ? ' key' : ''}${kind ? ` panel-${kind}` : ''}">
           <figcaption><span class="panel-num">${i + 1}</span><span class="panel-caption">${escapeHtml(tr?.captions?.[i] || p.caption)}</span>${kind ? warnBadge(kind, (COMIC_WARN[c.language] || COMIC_WARN.en)[kind]) : ''}</figcaption>
-          ${panelArt(c, p, tr?.speeches?.[i])}
+          ${panelArt(c, p, tr?.speeches?.[i], risk)}
         </figure>`;
       }).join('')}
     </div>
@@ -2701,9 +2725,12 @@ function comicBody(c, number) {
         <ul>${assumptions.map((a) => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
       </div>` : ''}
     ${cl ? `
-      <div class="clause-quote">
-        <p class="quote-head">${clauseHeading(cl)} &middot; the original words</p>
-        <blockquote>${escapeHtml(cl.text)}</blockquote>
+      <div class="clause-original">
+        <button class="btn btn-secondary btn-block" type="button" aria-expanded="false" aria-controls="orig-${escapeHtml(number)}" data-toggle-original>${escapeHtml(typeWords(c.language).readOriginal)}</button>
+        <div class="clause-quote" id="orig-${escapeHtml(number)}" hidden>
+          <p class="quote-head">${clauseHeading(cl)} &middot; the original words</p>
+          <blockquote data-keep>${escapeHtml(cl.text)}</blockquote>
+        </div>
       </div>` : ''}`;
 }
 

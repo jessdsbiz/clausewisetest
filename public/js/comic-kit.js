@@ -258,8 +258,27 @@ function bubble(text, speakerX) {
 const CHAR_W = 140;
 const CHAR_H = 182;
 
-// spec: { background, mei: { expression, outfit, holding }, other, otherMood, speech: { who: 'mei' | 'other', text } }
-export function composePanel({ background = 'home_desk', mei = {}, other = null, otherMood, speech = null }) {
+// The sign beside Mei's head: a red "!" triangle (possible scam sign or high risk), an amber "?" circle
+// (check this), or a green tick (good outcome). It sits to the right of her head and below the bubble,
+// so it never covers her face or the bubble.
+function riskSign(kind, meiX) {
+  if (!kind || kind === 'none') return '';
+  const cx = meiX + 122;
+  const cy = 100;
+  if (kind === 'high') {
+    return `<g aria-hidden="true"><path d="M${cx} ${cy - 17} L${cx + 16} ${cy + 12} L${cx - 16} ${cy + 12} Z" fill="#B42318" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/><path d="M${cx} ${cy - 6} v8" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/><circle cx="${cx}" cy="${cy + 6}" r="1.8" fill="#FFFFFF"/></g>`;
+  }
+  if (kind === 'medium') {
+    return `<g aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="14" fill="#B54708" stroke="#FFFFFF" stroke-width="2"/><path d="M${cx - 5} ${cy - 5} a5 5 0 1 1 7 4.6 c-1.3 .6 -2 1.4 -2 2.6 v1.3" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy + 8}" r="1.5" fill="#FFFFFF"/></g>`;
+  }
+  if (kind === 'good') {
+    return `<g aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="14" fill="#027A48" stroke="#FFFFFF" stroke-width="2"/><path d="M${cx - 7} ${cy} l5 5 l9 -10" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g>`;
+  }
+  return '';
+}
+
+// spec: { background, mei: { expression, outfit, holding }, other, otherMood, speech: { who: 'mei' | 'other', text }, sign }
+export function composePanel({ background = 'home_desk', mei = {}, other = null, otherMood, speech = null, sign = null }) {
   const withOther = other && CHARACTERS[other];
   const meiX = withOther ? 12 : (W - CHAR_W) / 2;
   const otherX = W - CHAR_W - 12;
@@ -271,5 +290,6 @@ export function composePanel({ background = 'home_desk', mei = {}, other = null,
       ${withOther ? `<svg x="${otherX}" y="${y}" width="${CHAR_W}" height="${CHAR_H}" viewBox="0 0 200 260">${CHARACTERS[other](otherMood)}</svg>` : ''}
       <svg x="${meiX}" y="${y}" width="${CHAR_W}" height="${CHAR_H}" viewBox="0 0 200 260">${meiInner(mei)}</svg>
       ${speech?.text ? bubble(speech.text, speakerX) : ''}
+      ${riskSign(sign, meiX)}
     </svg>`;
 }

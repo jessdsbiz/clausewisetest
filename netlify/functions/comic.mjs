@@ -82,6 +82,8 @@ function buildPanel(p) {
   return {
     background: oneOf(p?.background, Object.keys(COMIC_PARTS.backgrounds), 'home_desk'),
     expression: oneOf(p?.expression, COMIC_PARTS.expressions, 'thinking'),
+    // The risk this panel is about: high (scam sign or high risk), medium, good (a good outcome) or none.
+    risk: oneOf(p?.risk, ['high', 'medium', 'good', 'none'], null),
     holding: oneOf(p?.holding, COMIC_PARTS.holding, 'none'),
     character,
     character_mood: character === 'none' ? null : oneOf(p?.character_mood, COMIC_PARTS.moods, 'neutral'),
