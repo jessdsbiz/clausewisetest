@@ -1,10 +1,11 @@
 // ClauseWise app shell: hash router, bottom nav, scan screen and contract tabs.
 
 import { api } from './api.js';
-import { pdfToText, photoToText } from './extract.js';
+import { pdfToText, preparePhoto, readPage } from './extract.js';
 import { composePanel } from './comic-kit.js';
 import { hidePersonalNumbers } from './privacy.js';
 import { speak, stop as stopSpeaking, speechSupported, isSpeaking, onSpeakingChange, onSpeechError } from './speech.js';
+import { voiceSupported, listenInto, stopListening } from './voice.js';
 
 const screen = document.getElementById('screen');
 const header = document.querySelector('.app-header');
@@ -77,6 +78,8 @@ const icons = {
   dots: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   arrowUp: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  arrowDown: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
   bell: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4S6 15 6 10z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
   shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M12 8v4M12 15.5h.01"/></svg>',
   info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
@@ -173,19 +176,135 @@ let flash = null;
 // ---------- Home (scan a contract) ----------
 
 const scan = {
-  file: null,
-  previewUrl: null,
+  file: null, // a PDF
+  pages: [], // photos: [{ id, image, thumb, result: { text, readable, problem, printed_page } | null, error }]
+  retake: null, // index of the page being retaken
+  stage: 'pick', // pick -> (pdf) reading -> ready, or (photos) pages -> reading -> review -> ready
+  progress: null, // { done, total } while reading pages
+  reordered: false,
+  problems: [],
+  text: '', // the whole contract, masked, once read
+  readError: null,
+  detected: null,
+  detecting: false,
+  detectError: null,
+  typeTouched: false,
   contractType: 'job_offer',
   explainMode: 'plain',
   language: 'en',
   situation: '',
-  busy: false,
+  busy: false, // saving
 };
+
+const MAX_PAGES = 20;
+const READ_AT_ONCE = 3;
 
 // "Tell us about you" (PRD FR7): optional, in the user's own words.
 const SITUATION_MAX = 500;
 const SITUATION_HINT = "e.g. My first full-time job. I want to study part-time next year. I can't afford to lose money upfront.";
 const SITUATION_NOTE = "Optional. Don't include your NRIC or bank details.";
+
+// New wording on the scan screen and the mic buttons ("No more typing", PRD FR9), in the language
+// chosen for explanations. Fixed text, not AI. (Tamil still needs a native speaker's check.)
+const SCAN_WORDS = {
+  en: {
+    addPage: 'Add another page', addGallery: 'Add from gallery', done: 'Done – read my contract',
+    pagesCount: (n) => `${n} of ${MAX_PAGES} pages`, page: (n) => `Page ${n}`,
+    retake: 'Retake', remove: 'Delete', up: 'Move up', down: 'Move down',
+    nric: 'Cover your NRIC and bank numbers before you take each photo.',
+    tooMany: `You can add up to ${MAX_PAGES} pages.`,
+    reading: (x, n) => `Reading page ${x} of ${n}…`, ordering: 'Putting your pages in order…',
+    reordered: 'We put your pages in order.', checkHeading: 'Please check these pages',
+    unclear: (n, why) => `Page ${n} is hard to read${why ? ` (${why})` : ''} – retake it?`,
+    failed: (n) => `Page ${n} could not be read.`,
+    missingClauses: (a, b) => `Clauses jump from ${a} to ${b} – is a page missing?`,
+    missingPages: (p) => (p.length > 1 ? `Pages ${p.join(' and ')} look missing – did you skip them?` : `Page ${p[0]} looks missing – did you skip it?`),
+    duplicate: (a, b) => `Pages ${a} and ${b} look the same – delete one?`,
+    retakePage: (n) => `Retake page ${n}`, deletePage: (n) => `Delete page ${n}`, addMissing: 'Add the missing page',
+    tryAgain: 'Try again', continueAnyway: 'Continue anyway', startOver: 'Start over',
+    readingPdf: 'Reading your PDF…', noText: 'We could not read any text in these photos. Try again with better light, holding the phone flat above each page.',
+    detecting: 'Working out what this contract is…',
+    detected: (type, party) => (party ? `Detected: ${type} from ${party}` : `Detected: ${type}`),
+    change: 'Change', writtenIn: (l) => `Written in ${l}`,
+    detectFailed: 'We could not work out what kind of contract this is. Pick it below.',
+    types: { job_offer: 'Job offer', rental: 'Rental', phone_subscription: 'Phone / Subscription', loan: 'Loan', business: 'Business', other: 'Other' },
+    mic: 'Speak instead of typing', listening: 'Listening… tap to stop',
+    micBlocked: 'Allow the microphone to use voice input.', noSpeech: 'We didn\'t hear anything. Tap the mic and try again.',
+  },
+  zh: {
+    addPage: '再拍一页', addGallery: '从相册添加', done: '完成 – 读取我的合同',
+    pagesCount: (n) => `已拍 ${n} 页（最多 ${MAX_PAGES} 页）`, page: (n) => `第 ${n} 页`,
+    retake: '重拍', remove: '删除', up: '上移', down: '下移',
+    nric: '每次拍照前，请遮住你的 NRIC 和银行账号。',
+    tooMany: `最多可以添加 ${MAX_PAGES} 页。`,
+    reading: (x, n) => `正在读取第 ${x} 页，共 ${n} 页…`, ordering: '正在把你的页面排好顺序…',
+    reordered: '我们已把你的页面排好顺序。', checkHeading: '请检查这些页面',
+    unclear: (n, why) => `第 ${n} 页看不清楚${why ? `（${why}）` : ''} – 要重拍吗？`,
+    failed: (n) => `第 ${n} 页读取失败。`,
+    missingClauses: (a, b) => `条款从 ${a} 跳到 ${b} – 是不是少了一页？`,
+    missingPages: (p) => `好像少了第 ${p.join('、')} 页 – 是不是漏拍了？`,
+    duplicate: (a, b) => `第 ${a} 页和第 ${b} 页看起来一样 – 要删除一页吗？`,
+    retakePage: (n) => `重拍第 ${n} 页`, deletePage: (n) => `删除第 ${n} 页`, addMissing: '补拍缺少的页',
+    tryAgain: '再试一次', continueAnyway: '仍然继续', startOver: '重新开始',
+    readingPdf: '正在读取你的 PDF…', noText: '这些照片里读不到文字。请在光线好的地方，把手机平放在每一页上方再拍。',
+    detecting: '正在判断这是什么合同…',
+    detected: (type, party) => (party ? `识别结果：来自 ${party} 的${type}` : `识别结果：${type}`),
+    change: '更改', writtenIn: (l) => `文件语言：${l}`,
+    detectFailed: '我们无法判断这是什么合同。请在下面选择。',
+    types: { job_offer: '工作录用', rental: '租房', phone_subscription: '电话 / 订阅', loan: '贷款', business: '商业', other: '其他' },
+    mic: '用说话代替打字', listening: '正在听… 点一下停止',
+    micBlocked: '请允许使用麦克风来语音输入。', noSpeech: '没有听到声音。请点麦克风再试一次。',
+  },
+  ms: {
+    addPage: 'Tambah halaman lagi', addGallery: 'Tambah dari galeri', done: 'Selesai – baca kontrak saya',
+    pagesCount: (n) => `${n} daripada ${MAX_PAGES} halaman`, page: (n) => `Halaman ${n}`,
+    retake: 'Ambil semula', remove: 'Padam', up: 'Naik', down: 'Turun',
+    nric: 'Tutup NRIC dan nombor bank anda sebelum mengambil setiap gambar.',
+    tooMany: `Anda boleh menambah sehingga ${MAX_PAGES} halaman.`,
+    reading: (x, n) => `Membaca halaman ${x} daripada ${n}…`, ordering: 'Menyusun halaman anda…',
+    reordered: 'Kami telah menyusun halaman anda mengikut urutan.', checkHeading: 'Sila semak halaman ini',
+    unclear: (n, why) => `Halaman ${n} sukar dibaca${why ? ` (${why})` : ''} – ambil semula?`,
+    failed: (n) => `Halaman ${n} tidak dapat dibaca.`,
+    missingClauses: (a, b) => `Fasal melompat dari ${a} ke ${b} – adakah satu halaman tertinggal?`,
+    missingPages: (p) => `Halaman ${p.join(' dan ')} nampaknya tiada – adakah anda terlepas?`,
+    duplicate: (a, b) => `Halaman ${a} dan ${b} nampak sama – padam satu?`,
+    retakePage: (n) => `Ambil semula halaman ${n}`, deletePage: (n) => `Padam halaman ${n}`, addMissing: 'Tambah halaman yang tiada',
+    tryAgain: 'Cuba lagi', continueAnyway: 'Teruskan juga', startOver: 'Mula semula',
+    readingPdf: 'Membaca PDF anda…', noText: 'Kami tidak dapat membaca sebarang teks dalam gambar ini. Cuba lagi di tempat yang terang, dengan telefon rata di atas setiap halaman.',
+    detecting: 'Mengenal pasti jenis kontrak ini…',
+    detected: (type, party) => (party ? `Dikesan: ${type} daripada ${party}` : `Dikesan: ${type}`),
+    change: 'Tukar', writtenIn: (l) => `Ditulis dalam ${l}`,
+    detectFailed: 'Kami tidak dapat mengenal pasti jenis kontrak ini. Pilih di bawah.',
+    types: { job_offer: 'Tawaran kerja', rental: 'Sewa', phone_subscription: 'Telefon / Langganan', loan: 'Pinjaman', business: 'Perniagaan', other: 'Lain-lain' },
+    mic: 'Bercakap dan bukan menaip', listening: 'Sedang mendengar… tekan untuk berhenti',
+    micBlocked: 'Benarkan mikrofon untuk menggunakan input suara.', noSpeech: 'Kami tidak mendengar apa-apa. Tekan mikrofon dan cuba lagi.',
+  },
+  ta: {
+    addPage: 'இன்னொரு பக்கத்தைச் சேர்', addGallery: 'கேலரியிலிருந்து சேர்', done: 'முடிந்தது – என் ஒப்பந்தத்தைப் படி',
+    pagesCount: (n) => `${MAX_PAGES} இல் ${n} பக்கங்கள்`, page: (n) => `பக்கம் ${n}`,
+    retake: 'மீண்டும் எடு', remove: 'நீக்கு', up: 'மேலே', down: 'கீழே',
+    nric: 'ஒவ்வொரு படம் எடுக்கும் முன் உங்கள் NRIC மற்றும் வங்கி எண்களை மறைக்கவும்.',
+    tooMany: `அதிகபட்சம் ${MAX_PAGES} பக்கங்கள் சேர்க்கலாம்.`,
+    reading: (x, n) => `${n} இல் பக்கம் ${x} படிக்கப்படுகிறது…`, ordering: 'உங்கள் பக்கங்கள் வரிசைப்படுத்தப்படுகின்றன…',
+    reordered: 'உங்கள் பக்கங்களை வரிசைப்படுத்தினோம்.', checkHeading: 'இந்தப் பக்கங்களைச் சரிபார்க்கவும்',
+    unclear: (n, why) => `பக்கம் ${n} படிக்கக் கடினமாக உள்ளது${why ? ` (${why})` : ''} – மீண்டும் எடுக்கவா?`,
+    failed: (n) => `பக்கம் ${n} ஐப் படிக்க முடியவில்லை.`,
+    missingClauses: (a, b) => `பிரிவுகள் ${a} இலிருந்து ${b} க்குத் தாவுகின்றன – ஒரு பக்கம் விடுபட்டதா?`,
+    missingPages: (p) => `பக்கம் ${p.join(', ')} விடுபட்டது போல் உள்ளது – எடுக்க மறந்தீர்களா?`,
+    duplicate: (a, b) => `பக்கங்கள் ${a} மற்றும் ${b} ஒன்று போல் உள்ளன – ஒன்றை நீக்கவா?`,
+    retakePage: (n) => `பக்கம் ${n} ஐ மீண்டும் எடு`, deletePage: (n) => `பக்கம் ${n} ஐ நீக்கு`, addMissing: 'விடுபட்ட பக்கத்தைச் சேர்',
+    tryAgain: 'மீண்டும் முயற்சி செய்', continueAnyway: 'எப்படியும் தொடர்', startOver: 'மீண்டும் தொடங்கு',
+    readingPdf: 'உங்கள் PDF படிக்கப்படுகிறது…', noText: 'இந்தப் படங்களில் எந்த எழுத்தையும் படிக்க முடியவில்லை. நல்ல வெளிச்சத்தில், ஒவ்வொரு பக்கத்தின் மேலும் தொலைபேசியைத் தட்டையாகப் பிடித்து மீண்டும் முயற்சிக்கவும்.',
+    detecting: 'இது என்ன ஒப்பந்தம் என்று கண்டறியப்படுகிறது…',
+    detected: (type, party) => (party ? `கண்டறியப்பட்டது: ${party} இடமிருந்து ${type}` : `கண்டறியப்பட்டது: ${type}`),
+    change: 'மாற்று', writtenIn: (l) => `மொழி: ${l}`,
+    detectFailed: 'இது என்ன வகை ஒப்பந்தம் என்று கண்டறிய முடியவில்லை. கீழே தேர்ந்தெடுக்கவும்.',
+    types: { job_offer: 'வேலை வாய்ப்பு', rental: 'வாடகை', phone_subscription: 'தொலைபேசி / சந்தா', loan: 'கடன்', business: 'வணிகம்', other: 'மற்றவை' },
+    mic: 'தட்டச்சுக்குப் பதிலாகப் பேசுங்கள்', listening: 'கேட்கிறது… நிறுத்த தட்டவும்',
+    micBlocked: 'குரல் உள்ளீட்டைப் பயன்படுத்த மைக்ரோஃபோனை அனுமதிக்கவும்.', noSpeech: 'எதுவும் கேட்கவில்லை. மைக்கைத் தட்டி மீண்டும் முயற்சிக்கவும்.',
+  },
+};
+const scanWords = (lang = scan.language) => SCAN_WORDS[lang] || SCAN_WORDS.en;
 
 function tileGroup(name, options, selected, className, label) {
   return `
@@ -198,26 +317,119 @@ function tileGroup(name, options, selected, className, label) {
     </div>`;
 }
 
-function chosenFileHtml() {
+// A mic button for a text box (hidden where the browser can't do speech recognition).
+function micButton(target, lang) {
+  if (!voiceSupported) return '';
+  const w = scanWords(lang);
+  return `<button class="mic-btn" type="button" data-mic="${target}" data-lang="${lang}" aria-pressed="false" aria-label="${escapeHtml(w.mic)}" title="${escapeHtml(w.mic)}">${icons.mic}</button>`;
+}
+
+function chosenPdfHtml() {
   const f = scan.file;
-  if (!f) return '';
-  const isPdf = f.type === 'application/pdf';
-  const thumb = isPdf
-    ? `<span class="doc-icon">${icons.doc}</span>`
-    : `<img class="thumb" src="${scan.previewUrl}" alt="Preview of your photo">`;
   return `
     <div class="scan-file">
-      ${thumb}
+      <span class="doc-icon">${icons.doc}</span>
       <span class="file-info">
-        <p class="card-title">${escapeHtml(f.name || 'Photo')}</p>
-        <p class="card-meta">${isPdf ? 'PDF' : 'Photo'} &middot; ${formatSize(f.size)}</p>
+        <p class="card-title">${escapeHtml(f.name || 'Contract')}</p>
+        <p class="card-meta">PDF &middot; ${formatSize(f.size)}</p>
       </span>
       <button class="icon-btn" type="button" id="remove-file" aria-label="Remove this file" ${scan.busy ? 'disabled' : ''}>${icons.x}</button>
     </div>`;
 }
 
+// The photographed pages: a numbered thumbnail strip, each with retake, move and delete.
+function pagesHtml() {
+  const w = scanWords();
+  const busy = scan.stage === 'reading' || scan.busy;
+  const off = busy ? 'disabled' : '';
+  const n = scan.pages.length;
+  return `
+    <div class="pages-head">
+      <span>${escapeHtml(w.pagesCount(n))}</span>
+      <button class="link-btn" type="button" data-start-over ${off}>${escapeHtml(w.startOver)}</button>
+    </div>
+    <ol class="page-strip" aria-label="${escapeHtml(w.pagesCount(n))}">
+      ${scan.pages.map((p, i) => `
+        <li class="page-tile${p.result && p.result.readable !== 'yes' ? ' page-bad' : ''}">
+          <span class="page-num">${i + 1}</span>
+          <img src="${p.thumb}" alt="${escapeHtml(w.page(i + 1))}">
+          <span class="page-tools">
+            <button type="button" data-page-retake="${i}" aria-label="${escapeHtml(`${w.retake} – ${w.page(i + 1)}`)}" ${off}>${icons.camera}</button>
+            <button type="button" data-page-up="${i}" aria-label="${escapeHtml(`${w.up} – ${w.page(i + 1)}`)}" ${i === 0 || busy ? 'disabled' : ''}>${icons.arrowUp}</button>
+            <button type="button" data-page-down="${i}" aria-label="${escapeHtml(`${w.down} – ${w.page(i + 1)}`)}" ${i === n - 1 || busy ? 'disabled' : ''}>${icons.arrowDown}</button>
+            <button type="button" data-page-delete="${i}" aria-label="${escapeHtml(`${w.remove} – ${w.page(i + 1)}`)}" ${off}>${icons.trash}</button>
+          </span>
+        </li>`).join('')}
+    </ol>
+    <p class="pages-nric">${icons.lock} ${escapeHtml(w.nric)}</p>
+    ${scan.stage === 'pages' ? `
+      <div class="pages-actions">
+        <label class="pick scan-sub${n >= MAX_PAGES ? ' pick-off' : ''}">
+          <input type="file" id="camera-input" accept="image/*" capture="environment" ${n >= MAX_PAGES ? 'disabled' : ''}>
+          <span>${icons.camera} ${escapeHtml(w.addPage)}</span>
+        </label>
+        <label class="pick scan-sub${n >= MAX_PAGES ? ' pick-off' : ''}">
+          <input type="file" id="photo-input" accept="image/*" multiple ${n >= MAX_PAGES ? 'disabled' : ''}>
+          <span>${icons.image} ${escapeHtml(w.addGallery)}</span>
+        </label>
+      </div>
+      <button class="btn btn-light btn-block" type="button" data-read-pages>${icons.check} ${escapeHtml(w.done)}</button>` : ''}
+    ${scan.stage === 'review' || scan.stage === 'ready' ? `<input type="file" id="camera-input" accept="image/*" capture="environment" hidden>` : ''}`;
+}
+
+// What happened while reading: progress, page order, and anything to check.
+function readStatusHtml() {
+  const w = scanWords();
+  if (scan.stage === 'reading') {
+    const p = scan.progress;
+    const label = p ? (p.done < p.total ? w.reading(p.done + 1, p.total) : w.ordering) : w.readingPdf;
+    return `
+      <div class="read-progress" role="status">
+        <span class="spinner" aria-hidden="true"></span> ${escapeHtml(label)}
+        ${p ? `<span class="progress-bar"><span style="width:${Math.round((p.done / p.total) * 100)}%"></span></span>` : ''}
+      </div>`;
+  }
+  const parts = [];
+  if (scan.readError) parts.push(notice('error', scan.readError));
+  if (scan.reordered && scan.pages.length) parts.push(`<p class="read-note">${icons.check} ${escapeHtml(w.reordered)}</p>`);
+  if (scan.stage === 'review' && scan.problems.length) {
+    parts.push(`
+      <div class="page-problems" role="alert">
+        <p class="problems-title">${escapeHtml(w.checkHeading)}</p>
+        <ul>${scan.problems.map((pr) => `<li><span>${escapeHtml(pr.text)}</span>${pr.actions.map((a) => `
+          <button class="btn btn-secondary btn-small" type="button" ${a.attr}>${escapeHtml(a.label)}</button>`).join('')}</li>`).join('')}</ul>
+        <button class="btn btn-light btn-block" type="button" data-continue-pages>${escapeHtml(w.continueAnyway)}</button>
+      </div>`);
+  }
+  return parts.join('');
+}
+
+// "Detected: Job offer from BrightPath Solutions · Change"
+function detectedHtml() {
+  if (scan.stage !== 'ready') return '';
+  const w = scanWords();
+  if (scan.detecting) return `<div class="detected"><span class="spinner" aria-hidden="true"></span> ${escapeHtml(w.detecting)}</div>`;
+  if (scan.detectError) {
+    return `<div class="detected detected-off">${escapeHtml(w.detectFailed)}
+      <button class="link-btn" type="button" data-detect-again>${escapeHtml(w.tryAgain)}</button></div>`;
+  }
+  const d = scan.detected;
+  if (!d) return '';
+  const extra = [d.language && w.writtenIn(d.language), ...d.key_dates.map((k) => `${k.what}: ${k.date}`)].filter(Boolean);
+  return `
+    <div class="detected" lang="${scan.language}">
+      <span class="detected-icon">${icons.sparkle}</span>
+      <span class="detected-body">
+        <span class="detected-main">${escapeHtml(w.detected(w.types[scan.contractType] || w.types.other, d.other_party))} ·
+          <button class="link-btn" type="button" data-change-type>${escapeHtml(w.change)}</button></span>
+        ${extra.length ? `<span class="detected-extra">${escapeHtml(extra.join(' · '))}</span>` : ''}
+      </span>
+    </div>`;
+}
+
 function renderHome() {
   const off = scan.busy ? 'disabled' : '';
+  const photos = scan.pages.length > 0;
   return `
     <div class="home-top">
       <span class="logo">${LOGO}<span>Clause<b>Wise</b> SG</span></span>
@@ -235,38 +447,44 @@ function renderHome() {
     <h1 class="display">Got a contract to sign? Check it first.</h1>
 
     <section class="scan-card" aria-label="Add your contract">
-      ${chosenFileHtml()}
-      <label class="pick scan-main">
-        <input type="file" id="camera-input" accept="image/*" capture="environment" ${off}>
-        <span>${icons.camera} ${scan.file ? 'Scan again' : 'Scan a contract'}</span>
-      </label>
-      <div class="scan-row">
-        <label class="pick scan-sub">
-          <input type="file" id="pdf-input" accept="application/pdf" ${off}>
-          <span>${icons.doc} Upload PDF</span>
+      ${scan.file ? chosenPdfHtml() : photos ? pagesHtml() : `
+        <label class="pick scan-main">
+          <input type="file" id="camera-input" accept="image/*" capture="environment" ${off}>
+          <span>${icons.camera} Scan a contract</span>
         </label>
-        <label class="pick scan-sub">
-          <input type="file" id="photo-input" accept="image/*" ${off}>
-          <span>${icons.image} Photo</span>
-        </label>
-      </div>
-      <p class="photo-note">${icons.camera} Cover your NRIC and bank numbers before you snap. Photos are read by AI before we can hide anything.</p>
+        <div class="scan-row">
+          <label class="pick scan-sub">
+            <input type="file" id="pdf-input" accept="application/pdf" ${off}>
+            <span>${icons.doc} Upload PDF</span>
+          </label>
+          <label class="pick scan-sub">
+            <input type="file" id="photo-input" accept="image/*" multiple ${off}>
+            <span>${icons.image} Photo</span>
+          </label>
+        </div>
+        <p class="photo-note">${icons.camera} ${escapeHtml(scanWords().nric)} Photos are read by AI before we can hide anything.</p>`}
+      ${readStatusHtml()}
       <p class="scan-note">${icons.lock} Your original file is never saved · delete anytime</p>
     </section>
+
+    ${detectedHtml()}
 
     <h2 class="h2">Explain it as</h2>
     ${tileGroup('explain_mode', EXPLAIN_MODES, scan.explainMode, 'tiles-mode', 'Explain it as')}
 
-    <h2 class="h2">What kind of contract?</h2>
+    <h2 class="h2" id="type-heading">What kind of contract?</h2>
     ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}
 
     <h2 class="h2"><label for="situation-input">Tell us about you</label> <span class="h2-tag">Optional</span></h2>
-    <textarea class="situation-input" id="situation-input" maxlength="${SITUATION_MAX}" rows="3"
-      placeholder="${escapeHtml(SITUATION_HINT)}" aria-describedby="situation-note" ${off}>${escapeHtml(scan.situation)}</textarea>
+    <div class="voice-box">
+      <textarea class="situation-input" id="situation-input" maxlength="${SITUATION_MAX}" rows="3"
+        placeholder="${escapeHtml(SITUATION_HINT)}" aria-describedby="situation-note" ${off}>${escapeHtml(scan.situation)}</textarea>
+      ${micButton('situation-input', scan.language)}
+    </div>
     <p class="situation-note" id="situation-note">${icons.lock} ${escapeHtml(SITUATION_NOTE)} We use your words to show what matters most for you.</p>
 
     <div id="scan-status" aria-live="polite"></div>
-    ${scan.file ? `
+    ${scan.stage === 'ready' ? `
       <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off}>
         ${scan.busy ? '<span class="spinner" aria-hidden="true"></span> Working…' : 'Explain my contract'}
       </button>` : ''}`;
@@ -277,62 +495,208 @@ function setScanStatus(html) {
   if (el) el.innerHTML = html;
 }
 
-function setFile(file) {
-  if (scan.previewUrl) URL.revokeObjectURL(scan.previewUrl);
-  scan.file = file;
-  scan.previewUrl = file && file.type !== 'application/pdf' ? URL.createObjectURL(file) : null;
+// Back to an empty scan screen (the photos are dropped; nothing was stored).
+function resetUpload() {
+  scan.file = null;
+  scan.pages = [];
+  scan.retake = null;
+  scan.stage = 'pick';
+  scan.progress = null;
+  scan.reordered = false;
+  scan.problems = [];
+  scan.text = '';
+  scan.readError = null;
+  scan.detected = null;
+  scan.detecting = false;
+  scan.detectError = null;
+  scan.typeTouched = false;
 }
 
-function chooseFile(file, kind) {
+// Pages changed: anything read so far no longer stands for the whole contract.
+function pagesChanged() {
+  scan.stage = 'pages';
+  scan.text = '';
+  scan.problems = [];
+  scan.reordered = false;
+  scan.readError = null;
+  scan.detected = null;
+  scan.detectError = null;
+}
+
+async function choosePdf(file) {
   if (!file) return;
-  if (kind === 'pdf' && file.type !== 'application/pdf') {
+  if (file.type !== 'application/pdf') {
     setScanStatus(notice('error', 'Please choose a PDF file.'));
     return;
   }
-  if (kind === 'photo' && !file.type.startsWith('image/')) {
-    setScanStatus(notice('error', 'Please choose a photo.'));
-    return;
-  }
-  if (kind === 'pdf' && file.size > MAX_FILE_BYTES) {
+  if (file.size > MAX_FILE_BYTES) {
     setScanStatus(notice('error', 'This PDF is bigger than 5 MB. Try a smaller file.'));
     return;
   }
-  setFile(file);
+  resetUpload();
+  scan.file = file;
+  scan.stage = 'reading';
   render();
-  // The button appears below the choices, so bring it into view.
-  document.getElementById('scan-submit')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  try {
+    const { text } = await pdfToText(file);
+    // Hidden here on the device, before the text is saved or sent to any AI.
+    scan.text = hidePersonalNumbers(text).text;
+    scan.stage = 'ready';
+    render();
+    detectContract();
+  } catch (err) {
+    resetUpload();
+    render();
+    setScanStatus(notice('error', err.message));
+  }
+}
+
+// Photos from the camera (one) or the gallery (several). A retake replaces that page.
+async function addPhotos(files) {
+  const list = [...files].filter(Boolean);
+  if (!list.length) return;
+  const w = scanWords();
+  const retake = scan.retake;
+  scan.retake = null;
+  if (retake === null && scan.pages.length + list.length > MAX_PAGES) toast(w.tooMany);
+  const room = retake === null ? MAX_PAGES - scan.pages.length : 1;
+  try {
+    const prepared = await Promise.all(list.slice(0, room).map(preparePhoto));
+    const pages = prepared.map((p) => ({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, ...p, result: null, error: null }));
+    if (retake !== null && scan.pages[retake]) scan.pages[retake] = pages[0];
+    else scan.pages.push(...pages);
+    scan.file = null;
+    pagesChanged();
+  } catch (err) {
+    toast(err.message);
+  }
+  render();
+  document.querySelector('.page-strip li:last-child')?.scrollIntoView({ behavior: 'smooth', inline: 'end', block: 'nearest' });
+}
+
+// "Done – read my contract": each page that hasn't been read yet is read by Claude vision in its
+// own call, a few at a time; then the AI puts the pages in order and points out problems.
+async function readPages() {
+  const w = scanWords();
+  const todo = scan.pages.filter((p) => !p.result);
+  scan.stage = 'reading';
+  scan.readError = null;
+  scan.progress = { done: scan.pages.length - todo.length, total: scan.pages.length };
+  render();
+  let next = 0;
+  const worker = async () => {
+    while (next < todo.length) {
+      const page = todo[next++];
+      try {
+        page.result = await readPage(page.image, api, scan.pages.indexOf(page) + 1);
+        page.error = null;
+      } catch (err) {
+        page.error = err.message;
+      }
+      scan.progress.done++;
+      render();
+    }
+  };
+  await Promise.all(Array.from({ length: READ_AT_ONCE }, worker));
+
+  let order = null;
+  const read = scan.pages.filter((p) => p.result?.text);
+  if (scan.pages.length > 1 && read.length > 1) {
+    try {
+      order = await api('collate', {
+        method: 'POST',
+        what: 'putting your pages in order',
+        json: { pages: scan.pages.map((p) => ({ text: p.result?.text || '', printed_page: p.result?.printed_page || null, readable: p.result?.readable || 'no' })) },
+      });
+    } catch (err) {
+      scan.readError = err.message; // the pages keep the order they were taken in
+    }
+  }
+
+  // Apply the AI's order (photo numbers in the order they were taken) and note what changed.
+  const taken = [...scan.pages];
+  if (order?.reordered) scan.pages = order.order.map((n) => taken[n - 1]);
+  scan.reordered = Boolean(order?.reordered);
+  const pos = (photoNo) => scan.pages.indexOf(taken[photoNo - 1]) + 1;
+
+  const problems = [];
+  scan.pages.forEach((p, i) => {
+    const n = i + 1;
+    if (p.error) {
+      problems.push({ text: `${w.failed(n)} ${p.error}`, actions: [{ label: w.tryAgain, attr: 'data-read-pages' }, { label: w.retakePage(n), attr: `data-page-retake="${i}"` }] });
+    } else if (p.result && p.result.readable !== 'yes') {
+      problems.push({ text: w.unclear(n, p.result.problem), actions: [{ label: w.retakePage(n), attr: `data-page-retake="${i}"` }, { label: w.deletePage(n), attr: `data-page-delete="${i}"` }] });
+    }
+  });
+  for (const m of order?.missing || []) {
+    problems.push({ text: m.from && m.to ? w.missingClauses(m.from, m.to) : w.missingPages(m.pages), actions: [{ label: w.addMissing, attr: 'data-add-missing' }] });
+  }
+  for (const group of order?.duplicates || []) {
+    const [a, ...rest] = group.map(pos).sort((x, y) => x - y);
+    for (const b of rest) problems.push({ text: w.duplicate(a, b), actions: [{ label: w.deletePage(b), attr: `data-page-delete="${b - 1}"` }] });
+  }
+  scan.problems = problems;
+  scan.progress = null;
+  if (problems.length) {
+    scan.stage = 'review';
+    render();
+    document.querySelector('.page-problems')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else {
+    finishPages();
+  }
+}
+
+// Combine the pages, in order, into one contract (masked like a PDF), then detect what it is.
+function finishPages() {
+  const text = scan.pages.map((p) => p.result?.text || '').filter(Boolean).join('\n\n').trim();
+  if (!text) {
+    scan.stage = 'pages';
+    scan.readError = scanWords().noText;
+    render();
+    return;
+  }
+  scan.text = hidePersonalNumbers(text).text;
+  scan.stage = 'ready';
+  scan.problems = [];
+  render();
+  detectContract();
+}
+
+// AI works out the contract type, language, other party and key dates, and pre-fills the type
+// unless the user has already picked one themselves.
+async function detectContract() {
+  scan.detecting = true;
+  scan.detectError = null;
+  render();
+  try {
+    const d = await api('detect', { method: 'POST', json: { text: scan.text.slice(0, 15000), lang: scan.language }, what: 'working out what this contract is' });
+    scan.detected = d;
+    if (!scan.typeTouched) scan.contractType = d.contract_type;
+  } catch (err) {
+    scan.detectError = err.message;
+  } finally {
+    scan.detecting = false;
+    render();
+  }
 }
 
 async function submitScan() {
-  if (!scan.file || scan.busy) return;
+  if (scan.stage !== 'ready' || !scan.text || scan.busy) return;
   scan.busy = true;
   render();
-
   try {
-    const file = scan.file;
-    const isPdf = file.type === 'application/pdf';
-    let text;
-
-    if (isPdf) {
-      setScanStatus(notice('info', 'Reading your PDF…'));
-      ({ text } = await pdfToText(file));
-    } else {
-      setScanStatus(notice('info', 'Reading your photo. This can take up to a minute…'));
-      ({ text } = await photoToText(file, api));
-    }
-
-    // Hide NRIC/FIN and bank/card numbers here on the device, before the text is saved or
-    // sent to any AI. (Photos had to be read by AI first; PDFs never leave unmasked.)
-    ({ text } = hidePersonalNumbers(text));
-
     setScanStatus(notice('info', 'Saving…'));
-    // Only the masked text is sent. The original PDF or photo is not uploaded or kept.
+    const isPdf = Boolean(scan.file);
+    const d = scan.detected;
+    const typeName = CONTRACT_TYPES.find((t) => t.id === scan.contractType)?.label || 'Contract';
+    // Only the masked text is sent. The original PDF or photos are not uploaded or kept.
     const { id } = await api('contracts', {
       method: 'POST',
       what: 'saving your contract',
       json: {
-        raw_text: text,
-        file_name: file.name || (isPdf ? 'contract.pdf' : 'photo.jpg'),
+        raw_text: scan.text,
+        file_name: isPdf ? scan.file.name || 'contract.pdf' : `photos-${scan.pages.length}-pages.jpg`,
+        title: d?.other_party ? `${typeName} – ${d.other_party}` : isPdf ? '' : `${typeName} (${scan.pages.length} photo${scan.pages.length > 1 ? 's' : ''})`,
         source_type: isPdf ? 'pdf' : 'photo',
         contract_type: scan.contractType,
         explain_mode: scan.explainMode,
@@ -342,7 +706,7 @@ async function submitScan() {
       },
     });
 
-    setFile(null);
+    resetUpload(); // the photos are dropped here
     scan.situation = '';
     scan.busy = false;
     // First the "Personal details found" screen; its Continue button goes where "Explain it as"
@@ -358,9 +722,9 @@ async function submitScan() {
 screen.addEventListener('change', (e) => {
   const t = e.target;
   if (t.id === 'pdf-input') {
-    chooseFile(t.files[0], 'pdf');
+    choosePdf(t.files[0]);
   } else if (t.id === 'photo-input' || t.id === 'camera-input') {
-    chooseFile(t.files[0], 'photo');
+    addPhotos(t.files);
   } else if (t.id === 'comic-clause' && t.value) {
     location.hash = `#/contract/${parseRoute().params[0]}/comic/${encodeURIComponent(t.value)}`;
   } else if (t.id === 'lang-select') {
@@ -368,6 +732,10 @@ screen.addEventListener('change', (e) => {
     render();
   } else if (t.name === 'contract_type') {
     scan.contractType = t.value;
+    scan.typeTouched = true;
+    // The detected line names the type the user picked.
+    const detected = document.querySelector('.detected');
+    if (detected && scan.detected) detected.outerHTML = detectedHtml();
   } else if (t.name === 'explain_mode') {
     scan.explainMode = t.value;
   }
@@ -381,6 +749,65 @@ screen.addEventListener('input', (e) => {
     if (c) draftEdited(c, e.target.value);
   }
 });
+
+// Scan screen buttons for pages, problems and detection.
+function scanClick(e) {
+  const btn = e.target.closest('button');
+  if (!btn || parseRoute().name !== 'home') return false;
+  const i = (name) => Number(btn.dataset[name]);
+  if (btn.matches('[data-page-retake]')) {
+    scan.retake = i('pageRetake');
+    document.getElementById('camera-input')?.click();
+  } else if (btn.matches('[data-page-delete]')) {
+    scan.pages.splice(i('pageDelete'), 1);
+    if (!scan.pages.length) resetUpload();
+    else pagesChanged();
+    render();
+  } else if (btn.matches('[data-page-up], [data-page-down]')) {
+    const from = btn.matches('[data-page-up]') ? i('pageUp') : i('pageDown');
+    const to = btn.matches('[data-page-up]') ? from - 1 : from + 1;
+    [scan.pages[from], scan.pages[to]] = [scan.pages[to], scan.pages[from]];
+    pagesChanged();
+    render();
+  } else if (btn.matches('[data-read-pages]')) {
+    readPages();
+  } else if (btn.matches('[data-add-missing]')) {
+    pagesChanged();
+    render();
+    document.getElementById('camera-input')?.click();
+  } else if (btn.matches('[data-continue-pages]')) {
+    finishPages();
+  } else if (btn.matches('[data-start-over]')) {
+    resetUpload();
+    render();
+  } else if (btn.matches('[data-detect-again]')) {
+    detectContract();
+  } else if (btn.matches('[data-change-type]')) {
+    const tiles = document.querySelector('.tiles-type');
+    tiles?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    tiles?.querySelector('input:checked')?.focus({ preventScroll: true });
+  } else {
+    return false;
+  }
+  return true;
+}
+
+// Mic buttons (scan screen and Ask tab).
+function micClick(e) {
+  const btn = e.target.closest('[data-mic]');
+  if (!btn) return false;
+  if (!document.getElementById(btn.dataset.mic)) return true;
+  const w = scanWords(btn.dataset.lang);
+  listenInto(btn.dataset.mic, btn.dataset.lang, {
+    onState: (on) => {
+      btn.setAttribute('aria-pressed', String(on));
+      btn.title = on ? w.listening : w.mic;
+      btn.setAttribute('aria-label', on ? w.listening : w.mic);
+    },
+    onError: (code) => toast(code === 'not-allowed' || code === 'service-not-allowed' ? w.micBlocked : code === 'no-speech' ? w.noSpeech : w.noSpeech),
+  });
+  return true;
+}
 
 // ---------- Contracts list ----------
 
@@ -1324,6 +1751,7 @@ function flushDraft() {
 }
 window.addEventListener('pagehide', flushDraft);
 window.addEventListener('hashchange', flushDraft);
+window.addEventListener('hashchange', stopListening); // the mic stops when you leave the screen
 async function saveDraftNow() {
   if (!draftPending) return;
   const { c, text } = draftPending;
@@ -1897,6 +2325,7 @@ function renderAsk(c, prefillClause) {
       </div>
       <div class="composer-box">
         <input id="ask-input" type="text" maxlength="500" placeholder="Ask anything about your contract" aria-label="Your question" value="${escapeHtml(prefill)}" ${busy ? 'disabled' : ''}>
+        ${busy ? '' : micButton('ask-input', c.language || 'en')}
         <button class="send-btn" type="submit" aria-label="Send" ${busy ? 'disabled' : ''}>${icons.arrowUp}</button>
       </div>
       <p class="composer-foot">Answers come only from your contract. ClauseWise SG explains contracts. It is not legal advice.</p>
@@ -2440,6 +2869,9 @@ async function render() {
 }
 
 screen.addEventListener('click', (e) => {
+  // "No more typing" (PRD FR9): mic buttons, photo pages, problems and detection.
+  if (micClick(e) || scanClick(e)) return;
+
   // "You decide" (PRD FR8)
   const markBtn = e.target.closest('[data-mark]');
   if (markBtn) {
@@ -2577,7 +3009,7 @@ screen.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('#remove-file')) {
-    setFile(null);
+    resetUpload();
     render();
     return;
   }

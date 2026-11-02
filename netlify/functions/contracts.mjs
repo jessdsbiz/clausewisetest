@@ -1,7 +1,7 @@
 // /.netlify/functions/contracts
 //   GET              -> list this device's contracts
 //   GET    ?id=...   -> one contract with its text
-//   POST   (json)    -> save { raw_text, file_name, source_type, choices, situation }
+//   POST   (json)    -> save { raw_text, file_name, title, source_type, choices, situation }
 //   PATCH  ?id=...   -> change { language, explain_mode, hide_personal, situation, decisions }
 //                       decisions: { mark: { index, value: 'ask'|'ok'|'wrong'|null }, message, choice }
 //   DELETE ?id=...   -> delete the contract and every saved result
@@ -89,7 +89,9 @@ async function create(deviceId, req) {
   const fileName = String(body.file_name || 'contract').slice(0, 200);
   const row = await insertContract({
     device_id: deviceId,
-    title: fileName.replace(/\.[^.]+$/, '').replace(/\.pdf$/i, '').slice(0, 120) || 'Contract',
+    // A title from what was detected ("Job offer – BrightPath Solutions"), else the file name.
+    title: String(body.title || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+      || fileName.replace(/\.[^.]+$/, '').replace(/\.pdf$/i, '').slice(0, 120) || 'Contract',
     contract_type: contractType,
     explain_mode: explainMode,
     language,

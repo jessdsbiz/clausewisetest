@@ -17,6 +17,7 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 | F5 | **Ask tab.** A chatbot that answers only from the uploaded contract, quotes the clause it used, and says "I'm not sure, ask an expert" when it can't find the answer. | FR5 |
 | F6 | **Explain it as.** Switch between plain words, comic and audio (browser read-aloud), in English, Chinese, Malay and Tamil. | FR6 |
 | F7 | **Your situation.** An optional "Tell us about you" box on the scan screen. The AI reads the user's own words (no fixed filters or rules) and uses them to reorder the Summary, adjust warning priorities with a "Why this matters for you" line, and make "Your plan before you sign": 3–6 steps, each linked to a clause and a help source (MOM, TADM, Pro Bono SG, ScamShield 1799, ACRA, CASE). | FR7 |
+| F9 | **No more typing.** Photograph a contract page by page (up to 20, or pick several from the gallery), with a thumbnail strip to retake, delete or reorder pages. AI reads each page, puts the pages in order and flags pages that are hard to read, missing or repeated. On upload (PDF or photos), AI detects the contract type, language, other party and key dates and pre-fills them for the user to confirm. A mic button lets the user speak in "Tell us about you" and the chatbot. | FR9 |
 | F8 | **You decide.** Each warning has "I'll ask about this", "I'm OK with this" and "This looks wrong". A "You decide" screen shows an AI-drafted, editable message in English to the employer or landlord ("AI draft – check and edit before sending"), a plain-words version in the user's language underneath, and four options: Sign / Negotiate first / Get expert help / Walk away. Nothing pre-selected, no recommendation, and the app never sends anything itself. | FR8 |
 
 **App shell:** a mobile-first PWA that can be installed to a phone home screen. Purple branding. Bottom nav: Home / Contracts / Deadlines / Experts. The contract screen has 4 tabs: Summary / Risks / Comic / Ask. Deadlines and Experts are in the nav, but their content is Nice to Have, so they stay placeholders in this build. The "You decide" screen opens from the Overview and the Risks tab (like the Personal details screen) and uses mockup 6 (Before you sign) as a style reference.
@@ -25,7 +26,8 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - Plain HTML, CSS and JavaScript (no framework).
 - AI calls go only through Netlify Functions (`netlify/functions`) using the Claude API: Claude Haiku (`ANTHROPIC_MODEL`), with the risk check on its own setting (`ANTHROPIC_RISK_MODEL`, also Haiku). NVIDIA Build models stay as a backup (`AI_PROVIDER=nvidia`). `ANTHROPIC_API_KEY` and `NVIDIA_API_KEY` live in `.env` and never in browser files.
 - pdf.js extracts PDF text in the browser. Claude Haiku reads photos (an NVIDIA Build vision model on the backup).
-- Supabase stores uploads. Browser Web Speech API handles read-aloud.
+- Supabase stores uploads. Browser Web Speech API handles read-aloud and voice input (speech recognition).
+- Every AI call finishes in under 20 seconds, with a time limit and a Try again button. A photo is shrunk in the browser before upload, so each request stays well under Netlify's 6 MB limit.
 - Runs locally with `netlify dev`. Tested on the fictional BrightPath job offer.
 
 ---
@@ -48,6 +50,25 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - [ ] The saved contract appears in the Contracts list.
 - [ ] A **Delete** button removes the contract and all its saved results from Supabase, asks for confirmation first, and the contract disappears from the list.
 - [ ] No request from the browser contains the Claude or NVIDIA API key.
+
+### US8: Use it without typing
+*As a worker who isn't comfortable typing on a phone, I want to photograph my contract page by page, have the app work out what it is, and speak my questions, so that I can use ClauseWise SG without typing.*
+
+- [ ] "Scan a contract" opens the camera. After each photo, the screen shows the pages taken so far with "Add another page" and "Done – read my contract". Up to 20 pages.
+- [ ] "Photo" lets the user pick several photos from the gallery at once.
+- [ ] The pages show as a thumbnail strip with page numbers. Each page can be retaken, deleted or moved up or down.
+- [ ] The pages screen reminds the user to cover their NRIC and bank numbers before taking photos.
+- [ ] Each photo is shrunk in the browser before upload, so every request stays well under Netlify's 6 MB limit.
+- [ ] Each page is read by Claude vision in its own function call, a few at a time, each under 20 seconds. The screen shows "Reading page 2 of 5…".
+- [ ] AI puts the pages in order using page numbers, headings and clause numbers, even if the photos were taken out of order, and the screen says "We put your pages in order" when it changed the order. The thumbnail strip shows the new order.
+- [ ] AI flags problems instead of guessing, and the user can retake, delete or continue anyway: a page that is blurry or cut off ("Page 3 is hard to read – retake it?"), a page that looks missing ("Clauses jump from 4.2 to 6.1 – is a page missing?"), or the same page twice ("Pages 2 and 4 look the same – delete one?").
+- [ ] The pages are combined into one contract with numbered clauses, the same as a PDF upload, so Summary, Risks, Comic and Ask work as normal.
+- [ ] NRIC/FIN and bank numbers are masked on every page, the same as for a PDF.
+- [ ] Photos stay only in the browser and are dropped once the text is read; only the masked text is saved.
+- [ ] On upload (PDF or photos), AI detects the contract type, the document's language, the other party and key dates. The contract type is pre-filled and the screen shows "Detected: Job offer from BrightPath Solutions · Change", so the user only taps to confirm. The other party and dates are only shown if they appear in the contract. The contract is saved with a title made from them (e.g. "Job offer – BrightPath Solutions").
+- [ ] "Tell us about you" and the Ask box have a mic button that uses the browser's speech recognition in the chosen language (English, Chinese, Malay, Tamil). The words appear as they are heard, so the user can check and edit them before sending. The mic button is hidden if the browser can't do speech recognition. Spoken words are masked the same way as typed words.
+- [ ] Every new label and button is in English, Chinese, Malay and Tamil.
+- [ ] Every AI step has a time limit and a clear message with a Try again button.
 
 ### US2: Understand the key terms
 *As a fresh graduate, I want the important terms pulled out in plain words, so that I don't miss anything about pay, probation or notice.*
