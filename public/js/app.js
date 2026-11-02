@@ -596,7 +596,7 @@ function renderHome() {
 
     <div id="scan-status" aria-live="polite"></div>
     ${scan.stage === 'ready' ? `
-      <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off}>
+      <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off || (scan.detecting ? 'disabled' : '')}>
         ${scan.busy ? '<span class="spinner" aria-hidden="true"></span> Working…' : 'Explain my contract'}
       </button>` : ''}`;
 }
@@ -794,7 +794,8 @@ async function detectContract() {
 }
 
 async function submitScan() {
-  if (scan.stage !== 'ready' || !scan.text || scan.busy) return;
+  // The type must be known first: a click during detection would save the wrong type.
+  if (scan.stage !== 'ready' || !scan.text || scan.busy || scan.detecting) return;
   scan.busy = true;
   render();
   try {
@@ -3917,7 +3918,7 @@ function renderDesktopHome() {
                   ${typeChoicesShown() ? `<div>${typeChoiceHtml('h3')}</div>` : ''}
                 </div>
                 ${scan.stage === 'ready' ? `
-                  <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off}>
+                  <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off || (scan.detecting ? 'disabled' : '')}>
                     ${scan.busy ? '<span class="spinner" aria-hidden="true"></span> Working…' : 'Explain my contract'}
                   </button>` : ''}` : ''}
             </section>
