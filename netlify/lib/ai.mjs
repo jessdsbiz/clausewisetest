@@ -28,6 +28,14 @@ export const TAILOR_MODEL = pick('tailor');
 export const TRANSLATE_MODEL = pick('translate');
 export const DECIDE_MODEL = pick('decide');
 
+// "Make it fail" (PRD FR10): two different AIs check each other. NVIDIA checks what Claude wrote
+// (NVIDIA_CHECK_MODEL), Claude fixes it. SECOND_CHECKER=claude skips NVIDIA (e.g. if its key stops
+// working); Claude Haiku then does the check, as it also does whenever NVIDIA fails or is slow.
+export const SECOND_CHECKER = String(process.env.SECOND_CHECKER || 'nvidia').trim().toLowerCase() === 'claude' ? 'claude' : 'nvidia';
+// Nemotron Ultra caught both planted demo mistakes in ~12s; the fast model missed a changed number.
+export const NVIDIA_CHECK_MODEL = process.env.NVIDIA_CHECK_MODEL || NVIDIA_MODELS.verify;
+export const CLAUDE_CHECK_MODEL = CLAUDE_MODEL;
+
 // How long a function may run: Netlify stops it after 30s, on the live site and in netlify dev.
 export const FUNCTION_LIMIT_MS = 30000;
 // The longest one AI call may take before it is given up (with a clear "try again" message).
@@ -51,6 +59,12 @@ export function chat(options) {
 // `timeoutMs`, so the function can still reply before its own time limit.
 export function chatJsonHedged(options, timing = {}) {
   return hedged((signal) => chatJson({ ...options, signal }), timing);
+}
+
+// JSON from one particular AI ("claude" or "nvidia"), whichever writes everything else.
+export function jsonFrom(provider, options, timing = {}) {
+  const send = provider === 'nvidia' ? nvidiaChat : claudeChat;
+  return hedged((signal) => chatJson({ ...options, signal }, send), timing);
 }
 
 // The same for a plain-text reply (used for reading photos).
@@ -98,9 +112,9 @@ function hedged(attempt, { hedgeAfterMs = 9000, timeoutMs = 25000, busyMessage =
 }
 
 // Asks for JSON and parses it, retrying once if the model's reply isn't valid JSON.
-export async function chatJson(options) {
+export async function chatJson(options, send = chat) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const text = await chat(options);
+    const text = await send(options);
     const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
     try {
       return JSON.parse(json);

@@ -28,7 +28,7 @@ const LANGUAGES = ['en', 'zh', 'ms', 'ta'];
 const SOURCE_TYPES = { pdf: 'application/pdf', photo: 'image/jpeg' };
 
 const LIST_FIELDS = 'id,title,contract_type,explain_mode,language,source_type,file_name,status,created_at';
-const DETAIL_FIELDS = `${LIST_FIELDS},mime_type,raw_text,clauses,summary,risks,comics,chat,translations,personal,situation,tailored,decisions`;
+const DETAIL_FIELDS = `${LIST_FIELDS},mime_type,raw_text,clauses,summary,risks,comics,chat,translations,personal,situation,tailored,decisions,checks`;
 
 // "You decide" (PRD FR8)
 const MARKS = ['ask', 'ok', 'wrong'];
@@ -135,6 +135,7 @@ async function change(deviceId, id, req) {
     if (situation !== (row.situation || '')) {
       fields.situation = situation;
       fields.tailored = null;
+      fields.checks = null; // the new plan gets double-checked too (PRD FR10)
       const translations = row.translations || {};
       for (const lang of Object.keys(translations)) delete translations[lang].tailored;
       fields.translations = translations;

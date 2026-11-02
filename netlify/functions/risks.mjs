@@ -19,16 +19,16 @@ import { chatJsonHedged, RISKS_MODEL, MAX_CALL_MS } from '../lib/ai.mjs';
 import { cleanText } from '../lib/wording.mjs';
 import { checkPoint, locateQuote, norm } from '../lib/verify.mjs';
 
-const LEVELS = ['high', 'medium', 'info'];
+export const LEVELS = ['high', 'medium', 'info'];
 // Signs checked (from all groups together) and warnings shown, most serious first.
 const MAX_SIGNS = 12;
 const MAX_ITEMS = 10;
-const CATEGORIES = ['pay_to_start', 'personal_account', 'pressure', 'credentials', 'company_details', 'non_compete',
+export const CATEGORIES = ['pay_to_start', 'personal_account', 'pressure', 'credentials', 'company_details', 'non_compete',
   'probation', 'one_sided_change', 'fee', 'renewal', 'cancellation', 'other'];
 
 // The only patterns shown as "Scam sign", and what the quote must contain to prove each one.
 // A medical check ("certified medically fit") has no payment in it, so it can't be "pay to start".
-const SCAM_EVIDENCE = {
+export const SCAM_EVIDENCE = {
   pay_to_start: /\b(pay|paid|payment|fee|deposit|charge|cost|purchase|buy|transfer)\w*\b|\bS?\$\s?\d/i,
   personal_account: /\b(account|paynow|transfer|bank)\b/i,
   pressure: /\b\d+\s*\)?\s*(hours?|hrs?|days?)\b|\b(today|tomorrow|immediately|lapse\w*|expire\w*|withdrawn|no extension)\b|\b(one|two|twenty-four|forty-eight)\b[^.]{0,6}\b(hours?|days?)\b/i,
@@ -36,7 +36,7 @@ const SCAM_EVIDENCE = {
 };
 
 // Used when the AI's title is missing or has to be removed.
-const DEFAULT_TITLES = {
+export const DEFAULT_TITLES = {
   pay_to_start: 'You must pay before you start',
   personal_account: 'Money goes to a personal account',
   pressure: 'Pressure to decide quickly',
@@ -52,6 +52,15 @@ const DEFAULT_TITLES = {
 };
 
 export default contractTask({ field: 'risks', run: makeRisks });
+
+// Demo mode for judges (PRD FR10, only with ?demo=fail): the S$350 "pay to start" warning is left
+// out on purpose, so the second check can be seen finding it. Marked so the app labels it a demo.
+function plantDemoMistake(risks) {
+  // Every warning about having to pay that fee goes (BrightPath also warns "You must make a payment to
+  // accept", about the same S$350); warnings about who gets the money or the 2-day deadline stay.
+  const aboutFee = (r) => r.category === 'pay_to_start' || (r.category === 'fee' && /\bS?\$\s?350\b/.test(`${r.title} ${r.explanation} ${r.quote}`));
+  return { ...risks, items: risks.items.filter((r) => !aboutFee(r)), demo: true };
+}
 
 // One call on the whole contract took Haiku 5-14s and sometimes missed a clause, so the contract
 // is checked in up to 3 groups of whole sections (all of 5.x stays together) at the same time.
@@ -80,7 +89,7 @@ function clauseGroups(clauses) {
   return groups;
 }
 
-async function makeRisks(clauses, row, timeLeft) {
+async function makeRisks(clauses, row, timeLeft, { demo } = {}) {
   const groups = clauseGroups(clauses);
   if (process.env.CLAUSEWISE_DEBUG) console.log(`  risk check groups: ${groups.map((g) => `[${g[0].number}]-[${g[g.length - 1].number}] ${clausesForPrompt(g).length} chars`).join(', ')}`);
   // If any group fails, the whole check fails (the app shows Try again): a missing group would
@@ -107,7 +116,8 @@ ${clausesForPrompt(withReferencedParts(clauses, group))}`,
     company[key] = answers.map((a) => a?.company?.[key]).find((v) => typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null') ?? null;
   }
   const signs = answers.flatMap((a) => (Array.isArray(a?.signs) ? a.signs : []));
-  return buildRisks({ company, signs }, clauses, row, timeLeft);
+  const risks = await buildRisks({ company, signs }, clauses, row, timeLeft);
+  return demo ? plantDemoMistake(risks) : risks;
 }
 
 // "Account name: <name> Bank: <bank>…" -> { name, number }
@@ -149,7 +159,7 @@ function excerpt(text, about) {
 // every fact in it is in that quote, and only the explanation sentences whose facts are too;
 // otherwise a plain title for its kind and no facts at all. Null only when the warning points at no
 // clause in the contract.
-function clauseOnly(clauses, byNumber, homes, category, tries) {
+export function clauseOnly(clauses, byNumber, homes, category, tries) {
   const about = tries.map((t) => `${t?.title || ''} ${t?.explanation || ''} ${t?.quote || ''}`).join(' ');
   for (const n of homes) {
     const text = byNumber.get(n).text.trim();

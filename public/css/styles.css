@@ -1846,3 +1846,45 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
 @keyframes mic-pulse { 50% { box-shadow: 0 0 0 8px rgba(180, 35, 24, 0.15); } }
 .voice-box .mic-btn { position: absolute; right: 8px; bottom: 12px; }
 .composer-box .mic-btn { width: 36px; height: 36px; margin-right: 6px; }
+
+/* ---------- Make it fail: a second AI checks the first (PRD FR10) ---------- */
+
+/* "Demo mode: mistakes added on purpose" */
+.demo-label { margin: 10px 0; padding: 10px 14px; border-radius: 14px; background: #fef3c7; box-shadow: inset 0 0 0 1.5px #f59e0b; color: #78350f; font-size: 0.85rem; line-height: 1.4; }
+.demo-label strong { display: block; color: #92400e; font-size: 0.92rem; }
+
+/* "Double-checked by a second AI · 2 fixed": tap to see who checked and what changed */
+.check-badge { margin: 10px 0; border-radius: 14px; background: var(--success-bg); color: var(--success); font-size: 0.88rem; font-weight: 700; }
+.check-badge > summary, .check-running, .check-failed { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; list-style: none; }
+.check-badge > summary::-webkit-details-marker { display: none; }
+.check-badge > summary span { flex: 1; }
+.check-badge svg { width: 18px; height: 18px; flex-shrink: 0; }
+.check-badge[open] > summary > svg:last-child { transform: rotate(180deg); }
+.check-fixed { background: var(--info-bg); color: var(--info); }
+.check-running { background: var(--lavender); color: var(--purple-strong); cursor: default; }
+.check-failed { background: var(--medium-bg); color: var(--medium); cursor: default; }
+.check-failed .link-btn { margin-left: auto; }
+.check-panel { padding: 0 14px 12px; color: var(--ink); font-weight: 400; }
+.screen .check-panel p { margin: 0 0 8px; font-size: 0.85rem; line-height: 1.45; }
+.screen .check-how { color: var(--muted); }
+.screen .check-found { font-weight: 800; }
+.check-list { margin: 0; padding: 0; list-style: none; }
+.check-list li { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; margin-bottom: 8px; border-radius: 12px; background: #fff; font-size: 0.85rem; line-height: 1.45; }
+.check-part { color: var(--purple-strong); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.check-before { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+.check-before strong { text-decoration: none; display: inline-block; }
+.check-after { color: var(--success); }
+
+/* An explanation the two AIs couldn't agree on: the clause itself instead */
+.unclear-note { display: block; color: var(--medium); font-weight: 700; }
+.unclear-clause { display: block; margin-top: 4px; padding-left: 10px; border-left: 3px solid var(--lavender); color: var(--ink); font-style: italic; }
+
+/* A warning the second check found */
+.second-pill { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 3px 9px; border-radius: 6px; background: var(--info-bg); color: var(--info); font-size: 0.75rem; font-weight: 700; }
+.second-pill svg { width: 12px; height: 12px; }
+.risk-item-foot .second-pill { margin-right: auto; }
+
+/* A scam sign the second AI questioned: kept in full, with a small note of its doubt */
+.doubt-pill { margin-left: 6px; padding: 3px 9px; border-radius: 6px; background: var(--medium-bg); color: var(--medium); font-size: 0.75rem; font-weight: 700; }
+.risk-item-foot .doubt-pill { margin-right: auto; }
+.check-kept { color: var(--medium); }

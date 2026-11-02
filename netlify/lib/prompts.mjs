@@ -456,3 +456,51 @@ export function plainSystem(lang) {
 Write what the message says in ${LANGUAGE_NAMES[lang]}, in simple everyday words: 2 to 6 short sentences. Do not add, drop or change anything it asks. Keep amounts, dates, names and clause numbers as they are. This is not for sending.
 Reply with JSON only: { "plain": "..." }`;
 }
+
+// ---------- "Make it fail": a second AI checks the first (PRD FR10) ----------
+
+// The second checker (NVIDIA, or Claude as the backup), in two parts that run at the same time so
+// each answers sooner: "items" checks each item against the clauses it cites; "missed" reads the
+// whole contract for risky parts no warning covers.
+// `notesFirst` (used for Claude): go through every item and note each fact before the verdict;
+// without it Claude sometimes listed an item as wrong and then said it was right. For missed risks,
+// it first lists every payment the person must make, which it otherwise sometimes overlooked.
+export function checkSystem(lang, mode = 'items', { notesFirst = false } = {}) {
+  if (mode === 'missed') {
+    return `You are the second checker of another AI's warnings about ONE contract, for people in Singapore with no legal background. You get the warnings it already gave and the whole contract.
+${READING_RULES}
+"missed": parts of the contract that are clearly risky for the person signing but are not covered by any warning already given, most serious first. A part is covered only if a warning is about that same problem (a warning about when to pay does not cover having to pay at all). Risky means, for example: paying money to get or start a job, paying into a person's own account, having to sign or pay within hours or a day or two, a very wide ban on working elsewhere or a fixed penalty, the other side changing the terms on its own, or a large fee that may be kept. For each: "clause" (its label exactly as in the brackets) and "reason" (one short sentence in ${LANGUAGE_NAMES[lang]}). Only list clear risks; an empty list is a good answer.${notesFirst ? `
+Before "missed", fill in "payments": EVERY payment the person signing must make or could lose under the contract (fees, deposits, charges, deductions from pay, penalties, money they must pay to start), each with "clause", "what" (one short sentence in ${LANGUAGE_NAMES[lang]} saying what they must pay or could lose) and "serious": true for money they must pay to get or start the job, a deposit or fee that may be kept, or a fixed penalty, otherwise false.
+Reply with JSON only: { "payments": [ { "clause": "...", "what": "...", "serious": true } ], "missed": [ { "clause": "...", "reason": "..." } ] }` : `
+Reply with JSON only: { "missed": [ { "clause": "...", "reason": "..." } ] }`}`;
+  }
+  const fields = `- "type": "changed" (it states a fact differently from the contract), "invented" (it states something the contract does not say) or "missing" (it leaves out a condition that changes the meaning)
+- "item_says": the wrong words, copied exactly from the item ("" for "missing")
+- "clause_says": the words that show it, copied exactly from the contract ("" for "invented")
+- "reason": one short sentence in ${LANGUAGE_NAMES[lang]} saying exactly what is wrong, e.g. "The clause says 30 days, not 3 days."`;
+  const list = notesFirst
+    ? `"items": go through EVERY item, in order. For each: "id", "notes" (a few words checking each fact in it against the contract), then "verdict": "right" or "wrong". For a wrong item also give:
+${fields}
+Reply with JSON only: { "items": [ { "id": "...", "notes": "...", "verdict": "right" }, { "id": "...", "notes": "...", "verdict": "wrong", "type": "changed", "item_says": "...", "clause_says": "...", "reason": "..." } ] }`
+    : `"wrong": list ONLY the items that are wrong. Never list an item that is right. For each:
+- "id"
+- "verdict": "wrong"
+${fields}
+Reply with JSON only: { "wrong": [ { "id": "...", "verdict": "wrong", "type": "changed", "item_says": "...", "clause_says": "...", "reason": "..." } ] }`;
+  return `You are the second checker of another AI's short explanations of ONE contract, for people in Singapore with no legal background. Check each item against the contract parts it cites.
+${READING_RULES}
+An item is wrong only if a person relying on it would get a fact wrong: a number, amount, date, period, who pays whom, what they must do, or when or whether something applies. Plain everyday rewording is fine, leaving out a minor detail is fine, and calling something "a common scam sign" or "worth asking about" is fine: judge only the facts. If you are not sure, it is not wrong.
+${list}`;
+}
+
+// The fixer (Claude): rewrites what the checker found wrong, and writes warnings for missed risks.
+export const FIX_SYSTEM = `You fix short explanations of a contract that a second checker found wrong, and write warnings for risky parts that were missed. Use only the contract parts given; never add anything they don't say.
+${READING_RULES}
+For each item in "TO FIX", rewrite it about the same thing so that everything it says is in its contract parts: correct what is wrong and keep everything that was right (e.g. both the notice during probation and after it), and give "quotes": 1 to 3 quotes from those parts that together contain every number, amount, date and name in it. For each quote, ${QUOTE_RULE}
+- a summary point: "text", 1 or 2 short plain sentences, at most 35 words, written to "you".
+- a warning: "title" (at most 9 words) and "explanation" (1 or 2 short sentences, at most 30 words, written to "you").
+- a plan step: "text", one clear action, at most 25 words, written to "you". Never tell them to sign or not to sign.
+Also give "clauses": the labels of the parts your quotes are from.
+For each part in "MISSED", write a warning: "clause", "category" (one of: pay_to_start, personal_account, pressure, credentials, non_compete, probation, one_sided_change, fee, renewal, cancellation, other), "level" ("high" only for paying to start, paying a personal account, pressure to sign or pay within hours or days, or asking for passwords or OTPs; otherwise "medium"), "title", "explanation" and "quote" as above.
+Every number, amount, date and name in what you write must be inside your quote. Never say anything is safe, legal, illegal or a scam: say "a common scam sign" or "worth asking about".
+Reply with JSON only: { "fixes": [ { "id": "...", "text": "...", "title": "...", "explanation": "...", "quotes": ["..."], "clauses": ["..."] } ], "warnings": [ { "clause": "...", "category": "...", "level": "...", "title": "...", "explanation": "...", "quote": "..." } ] }`;

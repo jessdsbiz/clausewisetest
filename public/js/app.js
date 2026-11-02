@@ -443,6 +443,7 @@ function renderHome() {
       </label>
     </div>
 
+    ${DEMO_FAIL ? demoLabel() : ''}
     <p class="eyebrow">Understand before you sign</p>
     <h1 class="display">Got a contract to sign? Check it first.</h1>
 
@@ -1011,7 +1012,8 @@ function loadAi(c, field) {
   if (aiRequests.has(key)) return;
   delete c[`${field}Error`];
   const what = { summary: 'making the summary', risks: 'checking for warning signs', tailored: 'making your plan' }[field];
-  const call = () => api(`${AI_ENDPOINTS[field]}?id=${encodeURIComponent(c.id)}`, { method: 'POST', what });
+  const extra = field === 'summary' || field === 'risks' ? demoParam() : '';
+  const call = () => api(`${AI_ENDPOINTS[field]}?id=${encodeURIComponent(c.id)}${extra}`, { method: 'POST', what });
   let stale = false;
   aiRequests.set(key, call()
     // The free AI service is sometimes slow or busy: retry once before showing an error.
@@ -1032,6 +1034,7 @@ function loadAi(c, field) {
       aiRequests.delete(key);
       if (field === 'summary' && !c.risks && !c.risksError) loadAi(c, 'risks'); // risk check goes next
       if ((field === 'risks' || stale) && c.risks && !c.tailored && !c.tailoredError) loadAi(c, 'tailored'); // then the plan
+      if (field === 'tailored' && c.summary && c.risks) loadCheck(c); // then the second AI's check (PRD FR10)
       const { name, params } = parseRoute();
       if (name !== 'contract' || params[0] !== c.id) return;
       const tab = params[1] || 'summary';
@@ -1085,7 +1088,7 @@ function renderSummary(c) {
   const termRow = (s) => pointRow(c, {
     lead: `<span class="point-icon">${POINT_ICONS[s.key] || icons.doc}</span>`,
     title: escapeHtml(t(s, 'label')),
-    sub: escapeHtml(t(s, 'plain_text')),
+    sub: s.checked === 'unclear' ? unclearHtml(c, s.clause_numbers) : escapeHtml(t(s, 'plain_text')),
     numbers: s.clause_numbers,
   });
 
@@ -1103,6 +1106,8 @@ function renderSummary(c) {
   return `
     ${banner}
     <div id="for-you">${forYouBanner(c)}</div>
+    ${isDemoContract(c) ? demoLabel(c) : ''}
+    <div class="check-slot">${checkBadge(c)}</div>
     ${languageNote(c, 'summary')}
     ${listen}
     <div class="section-row">
@@ -1278,7 +1283,7 @@ function planSection(c) {
     <ol class="list-card plan-list">
       ${plan.map((s, i) => pointRow(c, {
     lead: `<span class="step-num" aria-hidden="true">${i + 1}</span>`,
-    title: escapeHtml(tr?.plan?.[i] || s.text),
+    title: s.checked === 'unclear' ? unclearHtml(c, s.clause_numbers) : escapeHtml(tr?.plan?.[i] || s.text),
     numbers: s.clause_numbers,
     after: `<div class="plan-help">Help: ${helpLink(s.help)}</div>`,
   })).join('')}
@@ -1323,6 +1328,7 @@ async function saveSituation(c, text, button) {
     if (situation !== (c.situation || '')) {
       c.situation = situation;
       c.tailored = null;
+      c.checks = null; // the new plan gets double-checked too (PRD FR10)
       delete c.tailoredError;
       for (const lang of Object.keys(c.translations || {})) delete c.translations[lang].tailored;
       for (const key of Object.keys(c.translateErrors || {})) if (key.endsWith(':tailored')) delete c.translateErrors[key];
@@ -1332,6 +1338,173 @@ async function saveSituation(c, text, button) {
     button.disabled = false;
     if (status) status.innerHTML = notice('error', err.message);
   }
+}
+
+// ---------- Make it fail: a second AI checks the first (PRD FR10) ----------
+
+// Demo mode for judges, only with ?demo=fail in the address: the summary and risk check get two
+// mistakes on purpose (notice period 30 -> 3 days, S$350 fee warning left out), so the second check
+// can be seen catching them. Never on otherwise.
+const DEMO_FAIL = new URLSearchParams(location.search).get('demo') === 'fail';
+const demoParam = () => (DEMO_FAIL ? '&demo=fail' : '');
+const isDemoContract = (c) => Boolean(c.checks?.demo || c.risks?.demo || (c.summary || []).some((s) => s.demo_mistake));
+
+// Fixed wording, in the language chosen for explanations. (Tamil still needs a native speaker's check.)
+const CHECK_WORDS = {
+  en: {
+    checking: 'Double-checking with a second AI…',
+    badge: (fixed, unclear, unsure) => `Double-checked by a second AI · ${fixed || unclear || unsure ? [fixed && `${fixed} fixed`, unclear && `${unclear} to read yourself`, unsure && `${unsure} unsure`].filter(Boolean).join(' · ') : 'all clear'}`,
+    doubt: (clause) => `Second AI unsure. Check ${clause}.`,
+    keptScam: 'Kept as it is: the scam sign is in the contract\'s own words, so the second AI can question it but not weaken it.',
+    failed: 'The second check couldn\'t run.', tryAgain: 'Try again',
+    how: 'Claude wrote these explanations. A second AI checked each one against its clause and looked for risky clauses that were missed. Anything wrong was rewritten by Claude and checked again.',
+    checkedBy: 'Checked by', nvidia: 'NVIDIA Nemotron, an AI from another company',
+    missedBy: 'Claude looked for missed risks, as the backup.',
+    claude: { off: 'Claude, as the backup (NVIDIA is switched off)', timeout: 'Claude, as the backup (NVIDIA took longer than 15 seconds)', error: 'Claude, as the backup (NVIDIA did not answer)' },
+    nothing: 'It found nothing wrong.', found: 'What it found', wrong: 'What was wrong:', before: 'Before:', now: 'Now:',
+    added: 'Found on second check', parts: { summary: 'Summary', risks: 'Warning', plan: 'Plan step' },
+    unclear: 'We couldn\'t explain this one clearly. Read the clause or ask an expert.',
+    demo: 'Demo mode: mistakes added on purpose',
+    demoNote: 'Two mistakes were put into the first AI\'s answer on purpose, to show the second AI catching them.',
+  },
+  zh: {
+    checking: '正在请第二个 AI 再检查一遍…',
+    badge: (fixed, unclear, unsure) => `已由第二个 AI 复查 · ${fixed || unclear || unsure ? [fixed && `已修正 ${fixed} 处`, unclear && `${unclear} 处请自己看条款`, unsure && `${unsure} 处有疑问`].filter(Boolean).join(' · ') : '没有发现问题'}`,
+    doubt: (clause) => `第二个 AI 不确定。请查看${clause}。`,
+    keptScam: '保持不变：这个诈骗迹象来自合同原文，第二个 AI 可以提出疑问，但不能削弱它。',
+    failed: '第二次检查没能完成。', tryAgain: '再试一次',
+    how: '这些解释由 Claude 写出。第二个 AI 把每一条和对应条款对照检查，并查找漏掉的风险条款。有错的地方由 Claude 重写，再检查一遍。',
+    checkedBy: '检查者', nvidia: 'NVIDIA Nemotron（另一家公司的 AI）',
+    missedBy: '漏掉的风险由 Claude（备用）查找。',
+    claude: { off: 'Claude（备用，NVIDIA 已关闭）', timeout: 'Claude（备用，NVIDIA 超过 15 秒没有回应）', error: 'Claude（备用，NVIDIA 没有回应）' },
+    nothing: '没有发现问题。', found: '发现的问题', wrong: '哪里不对：', before: '之前：', now: '现在：',
+    added: '第二次检查发现', parts: { summary: '摘要', risks: '警告', plan: '计划步骤' },
+    unclear: '我们无法把这一条解释清楚。请阅读条款原文，或咨询专家。',
+    demo: '演示模式：故意加入了错误',
+    demoNote: '第一个 AI 的回答里故意加入了两个错误，用来展示第二个 AI 如何发现它们。',
+  },
+  ms: {
+    checking: 'Sedang disemak semula oleh AI kedua…',
+    badge: (fixed, unclear, unsure) => `Disemak semula oleh AI kedua · ${fixed || unclear || unsure ? [fixed && `${fixed} dibetulkan`, unclear && `${unclear} untuk anda baca sendiri`, unsure && `${unsure} tidak pasti`].filter(Boolean).join(' · ') : 'semua baik'}`,
+    doubt: (clause) => `AI kedua tidak pasti. Semak ${clause}.`,
+    keptScam: 'Dikekalkan: tanda penipuan ini ada dalam perkataan kontrak sendiri, jadi AI kedua boleh mempersoalkannya tetapi tidak boleh melemahkannya.',
+    failed: 'Semakan kedua tidak dapat dijalankan.', tryAgain: 'Cuba lagi',
+    how: 'Claude menulis penerangan ini. AI kedua menyemak setiap satu dengan fasalnya dan mencari fasal berisiko yang terlepas. Apa-apa yang salah ditulis semula oleh Claude dan disemak sekali lagi.',
+    checkedBy: 'Disemak oleh', nvidia: 'NVIDIA Nemotron, AI daripada syarikat lain',
+    missedBy: 'Claude mencari risiko yang terlepas, sebagai sandaran.',
+    claude: { off: 'Claude, sebagai sandaran (NVIDIA dimatikan)', timeout: 'Claude, sebagai sandaran (NVIDIA mengambil masa lebih 15 saat)', error: 'Claude, sebagai sandaran (NVIDIA tidak menjawab)' },
+    nothing: 'Tiada apa-apa yang salah ditemui.', found: 'Apa yang ditemui', wrong: 'Apa yang salah:', before: 'Sebelum:', now: 'Sekarang:',
+    added: 'Ditemui pada semakan kedua', parts: { summary: 'Ringkasan', risks: 'Amaran', plan: 'Langkah pelan' },
+    unclear: 'Kami tidak dapat menerangkan yang ini dengan jelas. Baca fasal itu atau tanya pakar.',
+    demo: 'Mod demo: kesilapan ditambah dengan sengaja',
+    demoNote: 'Dua kesilapan dimasukkan dengan sengaja ke dalam jawapan AI pertama, untuk menunjukkan AI kedua menangkapnya.',
+  },
+  ta: {
+    checking: 'இரண்டாவது AI மூலம் மீண்டும் சரிபார்க்கப்படுகிறது…',
+    badge: (fixed, unclear, unsure) => `இரண்டாவது AI சரிபார்த்தது · ${fixed || unclear || unsure ? [fixed && `${fixed} திருத்தப்பட்டது`, unclear && `${unclear} நீங்களே படிக்கவும்`, unsure && `${unsure} உறுதியில்லை`].filter(Boolean).join(' · ') : 'எல்லாம் சரி'}`,
+    doubt: (clause) => `இரண்டாவது AI உறுதியாக இல்லை. ${clause} ஐச் சரிபார்க்கவும்.`,
+    keptScam: 'அப்படியே வைக்கப்பட்டது: இந்த மோசடி அறிகுறி ஒப்பந்தத்தின் சொந்த வார்த்தைகளில் உள்ளது, எனவே இரண்டாவது AI கேள்வி கேட்கலாம், ஆனால் பலவீனப்படுத்த முடியாது.',
+    failed: 'இரண்டாவது சரிபார்ப்பை இயக்க முடியவில்லை.', tryAgain: 'மீண்டும் முயற்சி செய்',
+    how: 'இந்த விளக்கங்களை Claude எழுதியது. இரண்டாவது AI ஒவ்வொன்றையும் அதன் பிரிவுடன் ஒப்பிட்டுச் சரிபார்த்து, விடுபட்ட அபாயமான பிரிவுகளைத் தேடியது. தவறானவற்றை Claude மீண்டும் எழுதி, மீண்டும் சரிபார்க்கப்பட்டது.',
+    checkedBy: 'சரிபார்த்தது', nvidia: 'NVIDIA Nemotron, மற்றொரு நிறுவனத்தின் AI',
+    missedBy: 'விடுபட்ட அபாயங்களை Claude மாற்றாகத் தேடியது.',
+    claude: { off: 'Claude, மாற்றாக (NVIDIA அணைக்கப்பட்டுள்ளது)', timeout: 'Claude, மாற்றாக (NVIDIA 15 வினாடிகளுக்கு மேல் எடுத்தது)', error: 'Claude, மாற்றாக (NVIDIA பதிலளிக்கவில்லை)' },
+    nothing: 'எந்தத் தவறும் கண்டுபிடிக்கப்படவில்லை.', found: 'கண்டுபிடித்தவை', wrong: 'என்ன தவறு:', before: 'முன்பு:', now: 'இப்போது:',
+    added: 'இரண்டாவது சரிபார்ப்பில் கண்டுபிடிக்கப்பட்டது', parts: { summary: 'சுருக்கம்', risks: 'எச்சரிக்கை', plan: 'திட்டப் படி' },
+    unclear: 'இதைத் தெளிவாக விளக்க முடியவில்லை. பிரிவைப் படியுங்கள் அல்லது நிபுணரிடம் கேளுங்கள்.',
+    demo: 'டெமோ முறை: வேண்டுமென்றே தவறுகள் சேர்க்கப்பட்டன',
+    demoNote: 'இரண்டாவது AI அவற்றைக் கண்டுபிடிப்பதைக் காட்ட, முதல் AI இன் பதிலில் இரண்டு தவறுகள் வேண்டுமென்றே சேர்க்கப்பட்டன.',
+  },
+};
+const checkWords = (c) => CHECK_WORDS[c?.language] || CHECK_WORDS.en;
+
+// "Demo mode: mistakes added on purpose", on the scan screen with ?demo=fail and on a demo contract.
+function demoLabel(c) {
+  const w = checkWords(c || { language: scan.language });
+  return `<div class="demo-label" role="note"><strong>${escapeHtml(w.demo)}</strong> ${escapeHtml(w.demoNote)}</div>`;
+}
+
+// The clause text shown in place of an explanation the two AIs couldn't agree on.
+function unclearHtml(c, numbers) {
+  const cl = c.clauses?.find((x) => x.number === numbers?.[0]);
+  const text = cl ? cl.text.replace(/\s+/g, ' ').slice(0, 260) : '';
+  return `<span class="unclear-note">${escapeHtml(checkWords(c).unclear)}</span>${text ? `<span class="unclear-clause">“${escapeHtml(text)}${cl.text.length > 260 ? '…' : ''}”</span>` : ''}`;
+}
+
+// The badge on the Summary and Risks tabs; tap it to see who checked and what changed.
+function checkBadge(c) {
+  if (!c.summary || !c.risks) return '';
+  const w = checkWords(c);
+  if (c.checkError) {
+    return `<div class="check-badge check-failed">${icons.shield} ${escapeHtml(w.failed)}
+      <button class="link-btn" type="button" data-check-again>${escapeHtml(w.tryAgain)}</button></div>`;
+  }
+  const ch = c.checks;
+  if (!ch || ch.stage !== 'done') return `<div class="check-badge check-running" role="status"><span class="spinner" aria-hidden="true"></span> ${escapeHtml(w.checking)}</div>`;
+  const results = ch.results || [];
+  const fixed = results.filter((r) => r.status === 'fixed').length;
+  const unclear = results.filter((r) => r.status === 'unclear').length;
+  const unsure = results.filter((r) => r.status === 'disputed').length;
+  const who = ch.checker === 'nvidia' ? w.nvidia : w.claude[ch.backup] || w.claude.error;
+  const seconds = (((ch.check_ms || 0) + (ch.fix_ms || 0)) / 1000).toFixed(0);
+  return `
+    <details class="check-badge ${fixed || unclear || unsure ? 'check-fixed' : 'check-clear'}">
+      <summary>${icons.shield} <span>${escapeHtml(w.badge(fixed, unclear, unsure))}</span>${icons.caret}</summary>
+      <div class="check-panel">
+        <p class="check-how">${escapeHtml(w.how)}</p>
+        <p class="check-who"><strong>${escapeHtml(w.checkedBy)}:</strong> ${escapeHtml(who)} · ${seconds}s${ch.checker === 'nvidia' && ch.missed_checker === 'claude' ? ` ${escapeHtml(w.missedBy)}` : ''}</p>
+        ${results.length ? `<p class="check-found">${escapeHtml(w.found)}</p>
+          <ul class="check-list">${results.map((r) => `
+            <li>
+              <span class="check-part">${escapeHtml(r.added ? w.added : w.parts[r.part] || '')}${r.clause_numbers?.length ? ` · ${escapeHtml(r.clause_numbers.map(clauseLabel).join(', '))}` : ''}</span>
+              ${r.reason ? `<span><strong>${escapeHtml(w.wrong)}</strong> ${escapeHtml(r.reason)}</span>` : ''}
+              ${r.before ? `<span class="check-before"><strong>${escapeHtml(w.before)}</strong> ${escapeHtml(r.before)}</span>` : ''}
+              ${r.status === 'fixed' ? `<span class="check-after"><strong>${escapeHtml(w.now)}</strong> ${escapeHtml(r.after)}</span>`
+    : r.status === 'disputed' ? `<span class="check-kept">${escapeHtml(w.keptScam)}</span>`
+      : `<span class="check-after">${unclearHtml(c, r.clause_numbers)}</span>`}
+            </li>`).join('')}</ul>` : `<p>${escapeHtml(w.nothing)}</p>`}
+      </div>
+    </details>`;
+}
+
+// Runs the second check once the summary, risks and plan are on screen: step 1 (the check),
+// then step 2 (the fixes) if anything was found. Each is its own function call. Never breaks
+// the page: a failure only shows "The second check couldn't run" with Try again.
+const checkRequests = new Set();
+async function loadCheck(c) {
+  if (checkRequests.has(c.id) || !c.summary || !c.risks || (c.checks && c.checks.stage === 'done')) return;
+  checkRequests.add(c.id);
+  delete c.checkError;
+  updateCheckBadges(c);
+  try {
+    if (!c.checks || c.checks.stage !== 'checked') {
+      const { checks } = await api(`check?id=${encodeURIComponent(c.id)}&step=check`, { method: 'POST', what: 'double-checking' });
+      c.checks = checks;
+    }
+    if (c.checks?.stage === 'checked') {
+      updateCheckBadges(c);
+      const data = await api(`check?id=${encodeURIComponent(c.id)}&step=fix`, { method: 'POST', what: 'fixing what the second check found' });
+      // Fixed parts are translated again; drop the old translations of the parts that changed.
+      for (const part of ['summary', 'risks', 'tailored']) {
+        if (data[part] && JSON.stringify(data[part]) !== JSON.stringify(c[part])) {
+          for (const lang of Object.keys(c.translations || {})) delete c.translations[lang][part];
+          c[part] = data[part];
+        }
+      }
+      c.checks = data.checks;
+    }
+  } catch (err) {
+    c.checkError = err.message;
+  } finally {
+    checkRequests.delete(c.id);
+    const { name, params } = parseRoute();
+    if (name === 'contract' && params[0] === c.id && ['summary', 'risks'].includes(params[1] || 'summary')) render();
+  }
+}
+
+// While the check runs, only the badges change (rows the reader has open stay open).
+function updateCheckBadges(c) {
+  document.querySelectorAll('.check-slot').forEach((slot) => { slot.innerHTML = checkBadge(c); });
 }
 
 // ---------- You decide (PRD FR8, styled after mockup 6) ----------
@@ -1911,6 +2084,8 @@ function renderRisks(c) {
 
   return `
     ${languageNote(c, 'risks')}
+    ${isDemoContract(c) ? demoLabel(c) : ''}
+    <div class="check-slot">${checkBadge(c)}</div>
     <section class="card risk-top">
       <div class="risk-top-head">
         ${gauge(level)}
@@ -1932,10 +2107,13 @@ function renderRisks(c) {
           <span class="risk-icon lvl-${r.level}">${RISK_ICONS[r.category] || RISK_ICONS.other}</span>
           <span class="risk-body">
             <span class="risk-item-title">${escapeHtml(riskText(c, r.index, 'title'))}</span>
-            ${r.explanation ? `<span class="risk-item-text">${escapeHtml(riskText(c, r.index, 'explanation'))}</span>` : ''}
+            ${r.checked === 'unclear' ? `<span class="risk-item-text">${unclearHtml(c, r.clause_numbers)}</span>`
+    : r.explanation ? `<span class="risk-item-text">${escapeHtml(riskText(c, r.index, 'explanation'))}</span>` : ''}
             ${whyLine(c, r, tr)}
             <span class="risk-item-foot">
               <span class="level-pill lvl-${r.level}">${LEVEL_LABEL[r.level]}</span>
+              ${r.found_by === 'second_check' ? `<span class="second-pill">${icons.shield} ${escapeHtml(checkWords(c).added)}</span>` : ''}
+              ${r.checked === 'disputed' ? `<span class="doubt-pill" title="${escapeHtml(r.doubt || '')}">${escapeHtml(checkWords(c).doubt(clauseLabel(r.clause_numbers[0])))}</span>` : ''}
               ${markOf(c, r.index) === 'wrong' ? `<span class="disagreed-pill" lang="${langAttr(c)}">${escapeHtml(decideWords(c).disagreed)}</span>` : ''}
               <span class="risk-link">${escapeHtml(clauseLabel(r.clause_numbers[0]))}${r.clause_numbers.length > 1 ? ` +${r.clause_numbers.length - 1}` : ''} ${icons.chevSmall}</span>
             </span>
@@ -2480,6 +2658,8 @@ function renderContract(c, tab, openClause = null) {
   if (!c.risks && !c.risksError && (c.summary || c.summaryError)) loadAi(c, 'risks');
   // Then "Your situation": the plan and anything made for this person.
   if (c.summary && c.risks && !c.tailored && !c.tailoredError) loadAi(c, 'tailored');
+  // Then a second AI double-checks it all (PRD FR10).
+  if (c.summary && c.risks && (c.tailored || c.tailoredError) && c.checks?.stage !== 'done' && !c.checkError) loadCheck(c);
 
   const tabsHtml = CONTRACT_TABS.map((t) => `
     <button class="tab" role="tab" type="button" id="tab-${t.id}"
@@ -2871,6 +3051,16 @@ async function render() {
 screen.addEventListener('click', (e) => {
   // "No more typing" (PRD FR9): mic buttons, photo pages, problems and detection.
   if (micClick(e) || scanClick(e)) return;
+
+  // "Make it fail" (PRD FR10): the second check couldn't run.
+  if (e.target.closest('[data-check-again]')) {
+    const c = contractCache.get(parseRoute().params[0]);
+    if (c) {
+      delete c.checkError;
+      loadCheck(c);
+    }
+    return;
+  }
 
   // "You decide" (PRD FR8)
   const markBtn = e.target.closest('[data-mark]');

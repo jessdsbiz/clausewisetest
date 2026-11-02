@@ -57,7 +57,7 @@ async function shorten(text, type, label, offTopic, timeLeft) {
   }
 }
 
-async function makeSummary(clauses, row, timeLeft) {
+async function makeSummary(clauses, row, timeLeft, { demo } = {}) {
   const type = row.contract_type;
   const rows = SUMMARY_ROWS[type];
   const contract = clausesForPrompt(clauses);
@@ -126,7 +126,20 @@ async function makeSummary(clauses, row, timeLeft) {
     return { key, label, found: true, plain_text: text, clause_numbers: check.clause_numbers };
   }));
 
-  return items.filter(Boolean);
+  const summary = items.filter(Boolean);
+  return demo ? plantDemoMistake(summary) : summary;
+}
+
+// Demo mode for judges (PRD FR10, only with ?demo=fail): the 30-day notice period is changed to
+// 3 days on purpose, so the second check can be seen catching it. Marked so the app labels it.
+function plantDemoMistake(summary) {
+  const row = summary.find((s) => s.key === 'notice' && /\b30\b|thirty/i.test(s.plain_text))
+    || summary.find((s) => /\b30 days\b|thirty \(30\) days/i.test(s.plain_text || ''));
+  if (row) {
+    row.plain_text = row.plain_text.replace(/thirty \(30\)/i, 'three (3)').replace(/\b30\b/, '3');
+    row.demo_mistake = true;
+  }
+  return summary;
 }
 
 // Second try for a point that failed the quote check: the AI sees what was wrong and the parts

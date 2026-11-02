@@ -18,6 +18,7 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 | F6 | **Explain it as.** Switch between plain words, comic and audio (browser read-aloud), in English, Chinese, Malay and Tamil. | FR6 |
 | F7 | **Your situation.** An optional "Tell us about you" box on the scan screen. The AI reads the user's own words (no fixed filters or rules) and uses them to reorder the Summary, adjust warning priorities with a "Why this matters for you" line, and make "Your plan before you sign": 3–6 steps, each linked to a clause and a help source (MOM, TADM, Pro Bono SG, ScamShield 1799, ACRA, CASE). | FR7 |
 | F9 | **No more typing.** Photograph a contract page by page (up to 20, or pick several from the gallery), with a thumbnail strip to retake, delete or reorder pages. AI reads each page, puts the pages in order and flags pages that are hard to read, missing or repeated. On upload (PDF or photos), AI detects the contract type, language, other party and key dates and pre-fills them for the user to confirm. A mic button lets the user speak in "Tell us about you" and the chatbot. | FR9 |
+| F10 | **Make it fail.** Two different AIs check each other: an NVIDIA model checks every summary point, warning and plan step Claude wrote against its clause and lists missed risks; Claude fixes what it finds, NVIDIA checks the fix again, and a "Double-checked by a second AI" badge shows what changed. Claude Haiku is the backup checker. A demo mode (?demo=fail) adds two mistakes on purpose. | FR10 |
 | F8 | **You decide.** Each warning has "I'll ask about this", "I'm OK with this" and "This looks wrong". A "You decide" screen shows an AI-drafted, editable message in English to the employer or landlord ("AI draft – check and edit before sending"), a plain-words version in the user's language underneath, and four options: Sign / Negotiate first / Get expert help / Walk away. Nothing pre-selected, no recommendation, and the app never sends anything itself. | FR8 |
 
 **App shell:** a mobile-first PWA that can be installed to a phone home screen. Purple branding. Bottom nav: Home / Contracts / Deadlines / Experts. The contract screen has 4 tabs: Summary / Risks / Comic / Ask. Deadlines and Experts are in the nav, but their content is Nice to Have, so they stay placeholders in this build. The "You decide" screen opens from the Overview and the Risks tab (like the Personal details screen) and uses mockup 6 (Before you sign) as a style reference.
@@ -27,7 +28,8 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - AI calls go only through Netlify Functions (`netlify/functions`) using the Claude API: Claude Haiku (`ANTHROPIC_MODEL`), with the risk check on its own setting (`ANTHROPIC_RISK_MODEL`, also Haiku). NVIDIA Build models stay as a backup (`AI_PROVIDER=nvidia`). `ANTHROPIC_API_KEY` and `NVIDIA_API_KEY` live in `.env` and never in browser files.
 - pdf.js extracts PDF text in the browser. Claude Haiku reads photos (an NVIDIA Build vision model on the backup).
 - Supabase stores uploads. Browser Web Speech API handles read-aloud and voice input (speech recognition).
-- Every AI call finishes in under 20 seconds, with a time limit and a Try again button. A photo is shrunk in the browser before upload, so each request stays well under Netlify's 6 MB limit.
+- Every AI call finishes in under 20 seconds, with a time limit and a Try again button.
+- The second check (FR10) uses the NVIDIA model in `NVIDIA_CHECK_MODEL` (default Nemotron Ultra) with a 15-second limit, and Claude Haiku as the backup. `SECOND_CHECKER=claude` switches NVIDIA off. A photo is shrunk in the browser before upload, so each request stays well under Netlify's 6 MB limit.
 - Runs locally with `netlify dev`. Tested on the fictional BrightPath job offer.
 
 ---
@@ -69,6 +71,18 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - [ ] "Tell us about you" and the Ask box have a mic button that uses the browser's speech recognition in the chosen language (English, Chinese, Malay, Tamil). The words appear as they are heard, so the user can check and edit them before sending. The mic button is hidden if the browser can't do speech recognition. Spoken words are masked the same way as typed words.
 - [ ] Every new label and button is in English, Chinese, Malay and Tamil.
 - [ ] Every AI step has a time limit and a clear message with a Try again button.
+
+### US9: Trust the explanations
+*As someone relying on an AI to explain a contract, I want a second, different AI to check its work and show me what it changed, so that I can trust what I read.*
+
+- [ ] After the summary, warnings and plan appear (and pass the code checks in verify.mjs), the app shows "Double-checking…" and runs the second check as its own function calls, so none goes over 30 seconds.
+- [ ] An NVIDIA model checks every summary point, warning and plan step against its clause text in one batch: does it match, and is anything invented, changed or missing? It answers in JSON with the item id, the verdict and a reason. Each "wrong" must quote the item's wrong words and the contract's words, which code checks, so a claim it can't back up is ignored.
+- [ ] It also lists risky clauses that no warning covers. The most serious (at most 2) become warnings marked "Found on second check".
+- [ ] Claude Haiku rewrites anything marked wrong using only the clause text. The rewrite must pass the code checks, then NVIDIA checks it once more. If it still fails, the app shows the clause itself with "We couldn't explain this one clearly. Read the clause or ask an expert." A scam-sign warning is never removed.
+- [ ] If NVIDIA takes more than 15 seconds or fails, Claude Haiku does the check instead, and the badge says so. The check can never break the page: if it can't run, the badge says so with a Try again button.
+- [ ] A badge on the Summary and Risks tabs says "Double-checked by a second AI · 2 fixed" (or "· all clear"). Tapping it shows which AI checked (NVIDIA or Claude as the backup), what was wrong, what it was changed to, and the clause.
+- [ ] Demo mode for judges: with ?demo=fail in the address, the notice period is changed from 30 to 3 days and the S$350 fee warning is left out on purpose, and the app shows "Demo mode: mistakes added on purpose". Demo mode is never on without ?demo=fail.
+- [ ] Fixed parts are translated again in the chosen language. Every new label is in English, Chinese, Malay and Tamil.
 
 ### US2: Understand the key terms
 *As a fresh graduate, I want the important terms pulled out in plain words, so that I don't miss anything about pay, probation or notice.*
@@ -185,6 +199,7 @@ Stored in Supabase: one `contracts` row per upload. The original file is not sto
 | `situation` | text | What the user typed in "Tell us about you", masked like `raw_text`. Empty if they left it blank |
 | `tailored` | jsonb | Personal parts made from `situation`: `{ summary_order: [key], risks: [{ index, level, why_for_you }], plan: [{ text, clause_numbers[], help }] }`, where `help` is `mom` / `tadm` / `probono` / `scamshield` / `acra` / `case`. Remade when the situation changes; `summary` and `risks` stay as they are. Translations of `why_for_you` and plan steps are kept in `translations` |
 | `decisions` | jsonb | `{ risks: { "<item index>": "ask" / "ok" / "wrong" }, message, message_plain: { lang, text }, plain_outdated, draft_for: [item index], choice, updated_at }`, where `message` is the English draft as last edited, `message_plain` is its plain-words version in the chosen language (`plain_outdated` once the draft is edited after it), `draft_for` the warnings the draft was made for, and `choice` is `null` / `sign` / `negotiate` / `expert` / `walk_away`. Added by `supabase/add-decisions.sql` |
+| `checks` | jsonb | The second AI's check (FR10): `{ stage, checker: "nvidia" / "claude", backup: null / "off" / "timeout" / "error", wrong: [...], missed: [...], results: [{ id, part, reason, before, after, status: "fixed" / "unclear", added, clause_numbers[] }], demo, check_ms, fix_ms }`. The fixes themselves are saved in `summary`, `risks` and `tailored` (items get `checked: "fixed" / "unclear"`, new warnings `found_by: "second_check"`). Cleared when the situation changes. Added by `supabase/add-checks.sql` |
 | `status` | text | `uploaded` / `processing` / `ready` / `error` |
 
 **Delete** removes the row, including all derived fields (and the Storage file, for older uploads that have one).

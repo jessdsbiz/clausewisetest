@@ -67,8 +67,10 @@ export function contractTask({
       const clauses = row.clauses?.length ? row.clauses : splitClauses(row.raw_text);
       if (!clauses.length) throw new HttpError(422, 'We could not find any clauses in this contract.');
 
+      // ?demo=fail (PRD FR10): mistakes are added on purpose for the judges' demo. Never otherwise.
+      const demo = new URL(req.url).searchParams.get('demo') === 'fail';
       const result = run
-        ? await run(clauses, row, timeLeft)
+        ? await run(clauses, row, timeLeft, { demo })
         : await build(await chatJsonHedged({
           model,
           thinking: false,
@@ -77,7 +79,7 @@ export function contractTask({
             { role: 'system', content: system },
             { role: 'user', content: `Contract type: ${TYPE_LABELS[row.contract_type]}\n\n${clausesForPrompt(clauses)}` },
           ],
-        }, timing), clauses, row, timeLeft);
+        }, timing), clauses, row, timeLeft, { demo });
       await updateContract(query, { clauses, [field]: result });
       return Response.json({ clauses, [field]: result });
     } catch (err) {
