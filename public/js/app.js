@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { pdfToText, preparePhoto, readPage } from './extract.js';
 import { composePanel } from './comic-kit.js';
 import { hidePersonalNumbers } from './privacy.js';
-import { UI_TEXT, UI_PATTERNS } from './ui-text.js';
+import { UI_TEXT, UI_PATTERNS, KEEP_NAMES, LANG_OWN, LANG_NAMES_IN } from './ui-text.js';
 import { speak, stop as stopSpeaking, togglePause, speechSupported, isSpeaking, onSpeakingChange, onSpeechError, onLoadingChange } from './speech.js';
 import { voiceSupported, listenInto, stopListening } from './voice.js';
 
@@ -554,13 +554,13 @@ function renderHome() {
   const photos = scan.pages.length > 0;
   return `
     <div class="home-top">
-      <span class="logo">${LOGO}<span>Clause<b>Wise</b> SG</span></span>
+      <span class="logo">${LOGO}<span data-keep>Clause<b>Wise</b> SG</span></span>
       <label class="lang-pill" title="Language for explanations">
         ${icons.globe}
-        <span aria-hidden="true">${LANGUAGES.find((l) => l.id === scan.language).short}</span>
+        <span aria-hidden="true" data-keep>${LANG_OWN[scan.language]}</span>
         ${icons.caret}
         <select id="lang-select" aria-label="Language for explanations" ${off}>
-          ${LANGUAGES.map((l) => `<option value="${l.id}" ${l.id === scan.language ? 'selected' : ''}>${l.label}</option>`).join('')}
+          ${langOptionsHtml(scan.language)}
         </select>
       </label>
     </div>
@@ -3120,6 +3120,10 @@ function toast(text) {
   setTimeout(() => el.remove(), 4500);
 }
 
+// Options and buttons: the language's own name in its own script, then its name in the language on screen.
+function langOptionsHtml(current) {
+  return LANGUAGES.map((l) => `<option data-keep value="${l.id}" ${l.id === current ? 'selected' : ''}>${escapeHtml(LANG_OWN[l.id])} · ${escapeHtml(LANG_NAMES_IN[current]?.[l.id] || l.name)}</option>`).join('');
+}
 const languageName = (id) => LANGUAGES.find((l) => l.id === id)?.name || 'English';
 
 function openLanguageSheet() {
@@ -3137,7 +3141,7 @@ function openLanguageSheet() {
       <div class="lang-options">
         ${LANGUAGES.map((l) => `
           <button class="lang-option" type="button" data-lang="${l.id}" aria-pressed="${l.id === c.language}">
-            <span>${l.label}</span><small>${l.name}</small>
+            <span data-keep>${LANG_OWN[l.id]}</span><small data-keep>${escapeHtml(LANG_NAMES_IN[shellLang()]?.[l.id] || l.name)}</small>
           </button>`).join('')}
       </div>
       <button class="btn btn-ghost btn-block" type="button" data-close>Close</button>
@@ -3413,14 +3417,14 @@ const DT_WORDS = {
     photoTitle: 'Add a photo of each page', photoSub: 'or drop them here · JPG or PNG · up to 20 pages',
     nricPill: 'Cover your NRIC before you scan',
     speakTitle: 'Tell us about you, out loud',
-    speakSub: 'Tap the mic and speak in English, 中文, BM or தமிழ். We use your words to show what matters most for you.',
+    speakSub: 'Tap the mic and speak in English, 中文, Bahasa Melayu or தமிழ். We use your words to show what matters most for you.',
     speakNext: 'Then add your contract with Upload PDF or Take photos.',
     noVoice: 'Voice input doesn\'t work in this browser. Type here instead, or try Chrome or Edge.',
     wrongFile: 'Please choose a PDF or photos (JPG or PNG).',
     canDo: ['Before you sign, ', 'ClauseWise it.'],
     sdgs: [['SDG 8', 'Decent work'], ['SDG 10', 'Reduced inequalities'], ['SDG 16', 'Access to justice']],
     bento: [
-      ['01 · Plain words', 'Legal terms, explained like a friend would.', 'Read it, see it as a comic, or listen in English, 中文, BM or தமிழ்.'],
+      ['01 · Plain words', 'Legal terms, explained like a friend would.', 'Read it, see it as a comic, or listen in English, 中文, Bahasa Melayu or தமிழ்.'],
       ['02', 'Checked twice', 'Scam signs flagged, then checked by a second AI.'],
       ['03', 'Tailored to you', 'Tell us your situation and get a plan that fits it.'],
       ['04', 'Approved by you', 'AI prepares your next steps and a draft message. You make the call.'],
@@ -3557,14 +3561,14 @@ const DT_WORDS = {
     photoTitle: 'Tambah gambar setiap halaman', photoSub: 'atau letakkan di sini · JPG atau PNG · sehingga 20 halaman',
     nricPill: 'Tutup NRIC anda sebelum mengimbas',
     speakTitle: 'Ceritakan tentang diri anda dengan suara',
-    speakSub: 'Tekan mikrofon dan bercakap dalam English, 中文, BM atau தமிழ். Kami guna kata-kata anda untuk menunjukkan perkara yang paling penting bagi anda.',
+    speakSub: 'Tekan mikrofon dan bercakap dalam English, 中文, Bahasa Melayu atau தமிழ். Kami guna kata-kata anda untuk menunjukkan perkara yang paling penting bagi anda.',
     speakNext: 'Kemudian tambah kontrak anda dengan Muat naik PDF atau Ambil gambar.',
     noVoice: 'Input suara tidak berfungsi dalam pelayar ini. Taip di sini, atau cuba Chrome atau Edge.',
     wrongFile: 'Sila pilih PDF atau gambar (JPG atau PNG).',
     canDo: ['Sebelum tandatangan, ', 'ClauseWise dahulu.'],
     sdgs: [['SDG 8', 'Pekerjaan yang wajar'], ['SDG 10', 'Kurangkan ketidaksamaan'], ['SDG 16', 'Akses kepada keadilan']],
     bento: [
-      ['01 · Bahasa mudah', 'Istilah undang-undang, diterangkan seperti seorang kawan.', 'Baca, lihat sebagai komik, atau dengar dalam English, 中文, BM atau தமிழ்.'],
+      ['01 · Bahasa mudah', 'Istilah undang-undang, diterangkan seperti seorang kawan.', 'Baca, lihat sebagai komik, atau dengar dalam English, 中文, Bahasa Melayu atau தமிழ்.'],
       ['02', 'Disemak dua kali', 'Tanda penipuan ditunjukkan, kemudian disemak oleh AI kedua.'],
       ['03', 'Disesuaikan untuk anda', 'Ceritakan keadaan anda dan dapatkan pelan yang sesuai.'],
       ['04', 'Diluluskan oleh anda', 'AI menyediakan langkah seterusnya dan draf mesej. Anda yang buat keputusan.'],
@@ -3627,14 +3631,14 @@ const DT_WORDS = {
     photoTitle: 'ஒவ்வொரு பக்கத்தின் படத்தையும் சேர்க்கவும்', photoSub: 'அல்லது இங்கே விடுங்கள் · JPG அல்லது PNG · 20 பக்கங்கள் வரை',
     nricPill: 'ஸ்கேன் செய்யும் முன் உங்கள் NRIC ஐ மறைக்கவும்',
     speakTitle: 'உங்களைப் பற்றி, குரலில் சொல்லுங்கள்',
-    speakSub: 'மைக்கைத் தட்டி English, 中文, BM அல்லது தமிழில் பேசுங்கள். உங்களுக்கு மிக முக்கியமானதைக் காட்ட உங்கள் வார்த்தைகளைப் பயன்படுத்துகிறோம்.',
+    speakSub: 'மைக்கைத் தட்டி English, 中文, Bahasa Melayu அல்லது தமிழில் பேசுங்கள். உங்களுக்கு மிக முக்கியமானதைக் காட்ட உங்கள் வார்த்தைகளைப் பயன்படுத்துகிறோம்.',
     speakNext: 'பிறகு "PDF பதிவேற்று" அல்லது "படம் எடு" மூலம் உங்கள் ஒப்பந்தத்தைச் சேர்க்கவும்.',
     noVoice: 'இந்த உலாவியில் குரல் உள்ளீடு வேலை செய்யாது. இங்கே தட்டச்சு செய்யுங்கள், அல்லது Chrome அல்லது Edge ஐ முயற்சிக்கவும்.',
     wrongFile: 'PDF அல்லது படங்களைத் (JPG அல்லது PNG) தேர்ந்தெடுக்கவும்.',
     canDo: ['கையெழுத்திடும் முன், ', 'ClauseWise செய்யுங்கள்.'],
     sdgs: [['SDG 8', 'கண்ணியமான வேலை'], ['SDG 10', 'குறைந்த சமத்துவமின்மை'], ['SDG 16', 'நீதிக்கான அணுகல்']],
     bento: [
-      ['01 · எளிய வார்த்தைகள்', 'சட்டச் சொற்கள், ஒரு நண்பர் விளக்குவது போல.', 'படியுங்கள், காமிக்காகப் பாருங்கள், அல்லது English, 中文, BM அல்லது தமிழில் கேளுங்கள்.'],
+      ['01 · எளிய வார்த்தைகள்', 'சட்டச் சொற்கள், ஒரு நண்பர் விளக்குவது போல.', 'படியுங்கள், காமிக்காகப் பாருங்கள், அல்லது English, 中文, Bahasa Melayu அல்லது தமிழில் கேளுங்கள்.'],
       ['02', 'இருமுறை சரிபார்க்கப்பட்டது', 'மோசடி அறிகுறிகள் சுட்டிக்காட்டப்பட்டு, இரண்டாவது AI ஆல் சரிபார்க்கப்படும்.'],
       ['03', 'உங்களுக்கு ஏற்றது', 'உங்கள் நிலைமையைச் சொல்லுங்கள், அதற்கு ஏற்ற திட்டத்தைப் பெறுங்கள்.'],
       ['04', 'நீங்கள் ஒப்புதல் தருவது', 'AI அடுத்த படிகளையும் வரைவுச் செய்தியையும் தயாரிக்கும். முடிவு உங்களுடையது.'],
@@ -3763,7 +3767,7 @@ function renderSide() {
   sideEl.innerHTML = `
     <a class="dt-logo" href="#/home" aria-label="${esc(w.homeLink)}">
       ${ringMark('dt-logo-mark', '#8B6CF0', '#F5B800')}
-      <span class="dt-logo-text" aria-hidden="true">Clause<span>Wise</span> <span class="dt-sg">SG</span></span>
+      <span class="dt-logo-text" aria-hidden="true" data-keep>Clause<span>Wise</span> <span class="dt-sg">SG</span></span>
     </a>
     <nav class="dt-nav" aria-label="${esc(w.mainNav)}">
       ${link('home', '#/home')}
@@ -3803,9 +3807,9 @@ function dtLangPicker() {
   return `
     <label class="dt-lang">
       ${icons.globe}
-      <span aria-hidden="true">${LANGUAGES.map((l) => (l.id === scan.language ? `<b>${l.short}</b>` : l.short)).join(' · ')}</span>
+      <span aria-hidden="true" data-keep>${LANGUAGES.map((l) => (l.id === scan.language ? `<b>${LANG_OWN[l.id]}</b>` : LANG_OWN[l.id])).join(' · ')}</span>
       <select id="lang-select" aria-label="${esc(dtWords(scan.language).language)}" ${scan.busy ? 'disabled' : ''}>
-        ${LANGUAGES.map((l) => `<option value="${l.id}" ${l.id === scan.language ? 'selected' : ''}>${l.label}</option>`).join('')}
+        ${langOptionsHtml(scan.language)}
       </select>
     </label>`;
 }
@@ -4813,6 +4817,7 @@ const LANG_HTML = { en: 'en', zh: 'zh-Hans', ms: 'ms', ta: 'ta' };
 let localizing = false;
 
 function translateText(lang, t) {
+  if (KEEP_NAMES.includes(t)) return null; // brand and official names stay as written
   const table = UI_TEXT[lang];
   if (!table) return null;
   if (Object.hasOwn(table, t)) return table[t];

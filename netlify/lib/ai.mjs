@@ -5,6 +5,7 @@
 // Both get the same prompts and messages, so every reply keeps the same JSON shape.
 
 import { HttpError } from './http.mjs';
+import { withKeepNames } from './names.mjs';
 import { claudeChat } from './claude.mjs';
 import { nvidiaChat, NVIDIA_MODELS } from './nvidia.mjs';
 
@@ -50,7 +51,8 @@ export function timeBudget() {
 }
 
 export function chat(options) {
-  return AI_PROVIDER === 'claude' ? claudeChat(options) : nvidiaChat(options);
+  const o = { ...options, messages: withKeepNames(options.messages) };
+  return AI_PROVIDER === 'claude' ? claudeChat(o) : nvidiaChat(o);
 }
 
 // A "hedged" chatJson: NVIDIA's free endpoint usually answers in ~10s but now and then a request

@@ -3,6 +3,7 @@
 // NVIDIA helper does, so the prompts and the JSON they ask for stay the same for both.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { withKeepNames } from './names.mjs';
 import { HttpError } from './http.mjs';
 
 let client;
@@ -35,7 +36,8 @@ function noThinking(model) {
 // the main model (ANTHROPIC_MODEL) gets one try at the same request.
 const fallbackModel = () => process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5';
 
-export async function claudeChat({ model, messages, maxTokens = 2048, signal }) {
+export async function claudeChat({ model, messages: rawMessages, maxTokens = 2048, signal }) {
+  const messages = withKeepNames(rawMessages);
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new HttpError(500, 'The Claude API key is not set up. Add ANTHROPIC_API_KEY to .env and restart netlify dev.');
 

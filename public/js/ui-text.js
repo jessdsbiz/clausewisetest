@@ -4,6 +4,18 @@
 // summaries and warnings come translated from the server.
 // Malay and Tamil wording still needs a native-speaker check.
 
+// Brand and official names: never translated, anywhere (also in netlify/lib/names.mjs).
+export const KEEP_NAMES = ["ClauseWise SG","ClauseWise","ScamShield","1799","ACRA","BizFile","MOM","TADM","Pro Bono SG","CASE","UEN","NRIC","SDG"];
+
+// Each language's name in its own script (the main label), and its name in each language (the subtitle).
+export const LANG_OWN = { en: 'English', zh: '中文', ms: 'Bahasa Melayu', ta: 'தமிழ்' };
+export const LANG_NAMES_IN = {
+  en: { en: 'English', zh: 'Chinese', ms: 'Malay', ta: 'Tamil' },
+  zh: { en: '英语', zh: '中文', ms: '马来语', ta: '泰米尔语' },
+  ms: { en: 'Bahasa Inggeris', zh: 'Cina', ms: 'Bahasa Melayu', ta: 'Tamil' },
+  ta: { en: 'ஆங்கிலம்', zh: 'சீனம்', ms: 'மலாய்', ta: 'தமிழ்' },
+};
+
 export const UI_TEXT = {
   zh: {
     'How much notice do I give?': '我需要提前多久通知？',
@@ -100,7 +112,7 @@ export const UI_TEXT = {
     'This looks like a Phone / Subscription, not a Job offer.': '这看起来像是电话 / 订阅合同，而不是工作录用。',
     'Switch to Phone / Subscription': '改为电话 / 订阅', 'Keep Job offer': '保留工作录用',
     'Before you sign,': '签约前，', 'ClauseWise it.': '让 ClauseWise 检查。', 'Legal terms, explained like a friend would.': '法律条款，像朋友一样解释给你听。',
-    'Read it, see it as a comic, or listen in English, 中文, BM or தமிழ்.': '看文字、看漫画，或用英语、中文、马来语或泰米尔语收听。',
+    'Read it, see it as a comic, or listen in English, 中文, Bahasa Melayu or தமிழ்.': '看文字、看漫画，或用英语、中文、马来语或泰米尔语收听。',
     'Checked twice': '已复查', 'Scam signs flagged, then checked by a second AI.': '标出诈骗迹象，再由第二个 AI 复查。',
     'Tailored to you': '为你定制', 'Tell us your situation and get a plan that fits it.': '告诉我们你的情况，获得适合你的计划。',
     'Approved by you': '由你批准', 'AI prepares your next steps and a draft message. You make the call.': 'AI 为你准备下一步和草拟信息。最终由你决定。',
@@ -249,7 +261,7 @@ export const UI_TEXT = {
     'This looks like a Phone / Subscription, not a Job offer.': 'Ini kelihatan seperti Telefon / Langganan, bukan Tawaran kerja.',
     'Switch to Phone / Subscription': 'Tukar kepada Telefon / Langganan', 'Keep Job offer': 'Kekalkan Tawaran kerja',
     'Before you sign,': 'Sebelum anda tandatangan,', 'ClauseWise it.': 'semak dengan ClauseWise.', 'Legal terms, explained like a friend would.': 'Istilah undang-undang, dijelaskan seperti kawan.',
-    'Read it, see it as a comic, or listen in English, 中文, BM or தமிழ்.': 'Baca, lihat sebagai komik, atau dengar dalam Bahasa Inggeris, 中文, BM atau தமிழ்.',
+    'Read it, see it as a comic, or listen in English, 中文, Bahasa Melayu or தமிழ்.': 'Baca, lihat sebagai komik, atau dengar dalam Bahasa Inggeris, 中文, Bahasa Melayu atau தமிழ்.',
     'Checked twice': 'Disemak dua kali', 'Scam signs flagged, then checked by a second AI.': 'Tanda penipuan ditandakan, kemudian disemak oleh AI kedua.',
     'Tailored to you': 'Disesuaikan untuk anda', 'Tell us your situation and get a plan that fits it.': 'Beritahu keadaan anda dan dapatkan pelan yang sesuai.',
     'Approved by you': 'Diluluskan oleh anda', 'AI prepares your next steps and a draft message. You make the call.': 'AI menyediakan langkah seterusnya dan draf mesej. Anda yang membuat keputusan.',
@@ -394,7 +406,7 @@ export const UI_TEXT = {
     'This looks like a Phone / Subscription, not a Job offer.': 'இது தொலைபேசி / சந்தா போல் தெரிகிறது, வேலை வாய்ப்பு அல்ல.',
     'Switch to Phone / Subscription': 'தொலைபேசி / சந்தா ஆக மாற்று', 'Keep Job offer': 'வேலை வாய்ப்பு ஆக வைத்திரு',
     'Before you sign,': 'கையொப்பமிடுவதற்கு முன்,', 'ClauseWise it.': 'ClauseWise மூலம் சரிபாருங்கள்.', 'Legal terms, explained like a friend would.': 'சட்ட விதிகள், நண்பர் போல் விளக்கப்படும்.',
-    'Read it, see it as a comic, or listen in English, 中文, BM or தமிழ்.': 'படியுங்கள், கார்ட்டூனாகப் பாருங்கள், அல்லது ஆங்கிலம், 中文, BM அல்லது தமிழில் கேளுங்கள்.',
+    'Read it, see it as a comic, or listen in English, 中文, Bahasa Melayu or தமிழ்.': 'படியுங்கள், கார்ட்டூனாகப் பாருங்கள், அல்லது ஆங்கிலம், 中文, Bahasa Melayu அல்லது தமிழில் கேளுங்கள்.',
     'Checked twice': 'இருமுறை சரிபார்க்கப்பட்டது', 'Scam signs flagged, then checked by a second AI.': 'மோசடி அறிகுறிகள் குறிக்கப்பட்டு, இரண்டாவது AI ஆல் சரிபார்க்கப்படும்.',
     'Tailored to you': 'உங்களுக்கு ஏற்றது', 'Tell us your situation and get a plan that fits it.': 'உங்கள் நிலையைச் சொல்லுங்கள், அதற்கு ஏற்ற திட்டத்தைப் பெறுங்கள்.',
     'Approved by you': 'உங்களால் அங்கீகரிக்கப்பட்டது', 'AI prepares your next steps and a draft message. You make the call.': 'AI அடுத்த படிகளையும் வரைவு செய்தியையும் தயாரிக்கும். முடிவு உங்களுடையது.',
