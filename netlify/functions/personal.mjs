@@ -13,7 +13,7 @@
 import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
 import { selectContracts, updateContract } from '../lib/supabase.mjs';
 import { splitClauses } from '../lib/clauses.mjs';
-import { chatJsonHedged, TEXT_MODEL } from '../lib/ai.mjs';
+import { chatJsonHedged, TEXT_MODEL, MAX_CALL_MS } from '../lib/ai.mjs';
 import { PERSONAL_SYSTEM, clausesForPrompt } from '../lib/prompts.mjs';
 import { MASKED_NRIC, MASKED_ACCOUNT } from '../../public/js/privacy.js';
 
@@ -61,7 +61,7 @@ export default async (req) => {
         { role: 'system', content: PERSONAL_SYSTEM },
         { role: 'user', content: clausesForPrompt(clauses) },
       ],
-    }, { hedgeAfterMs: 6000, timeoutMs: 20000 });
+    }, { hedgeAfterMs: 6000, timeoutMs: MAX_CALL_MS });
 
     const personal = {
       hidden: {

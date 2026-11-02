@@ -43,7 +43,7 @@ export default async (req) => {
       }],
     }, {
       hedgeAfterMs: 12000,
-      timeoutMs: 26000,
+      timeoutMs: 20000,
       busyMessage: 'Reading your photo took too long: the AI photo reader is busy. Please try again in a minute, or upload a PDF instead.',
     });
 

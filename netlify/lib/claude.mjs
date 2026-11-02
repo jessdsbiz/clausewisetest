@@ -9,7 +9,8 @@ let client;
 
 // Our own hedging in ai.mjs already sends a second request when one fails or is slow,
 // so the SDK retries only once (for rate limits and short outages).
-const getClient = () => (client ??= new Anthropic({ maxRetries: 1 }));
+// The timeout is only a backstop: every call also has its own, shorter time limit (ai.mjs).
+const getClient = () => (client ??= new Anthropic({ maxRetries: 1, timeout: 25000 }));
 
 // OpenAI-style content (text or a list with image_url parts) to Claude content blocks.
 function toClaudeContent(content) {

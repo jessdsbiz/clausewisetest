@@ -1,7 +1,8 @@
 // ClauseWise SG never says a contract is safe, illegal or a scam (PRD section 11).
 // AI text goes through here before it is saved or shown.
 
-export const BANNED = /\b(safe|safely|illegal|unlawful|against the law|not allowed|fraud|fraudulent|(?:is|be|looks like|definitely) a scam|a scam\b)/i;
+// "Is it legal / lawful" is a legal opinion too; "legal advice" or "lawful instructions" are fine.
+export const BANNED = /\b(safe|safely|illegal|unlawful|against the law|not allowed|fraud|fraudulent|(?:is|be|looks like|definitely) a scam|a scam\b|(?:is|are|be|was|were|isn'?t|aren'?t) (?:legal|lawful|legally allowed)\b)/i;
 
 // Drops any sentence that uses banned wording (rather than trying to reword it), then trims to max length.
 export function cleanText(s, max) {

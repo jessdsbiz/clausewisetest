@@ -5,7 +5,7 @@
 
 import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
 import { selectContracts, updateContract } from '../lib/supabase.mjs';
-import { chat, TRANSLATE_MODEL } from '../lib/ai.mjs';
+import { chat, timeBudget, TRANSLATE_MODEL, MAX_CALL_MS } from '../lib/ai.mjs';
 import { translateSystem } from '../lib/prompts.mjs';
 import { inScript } from '../lib/scripts.mjs';
 
@@ -60,12 +60,12 @@ function partStrings(row, part) {
 }
 
 // Translates one batch. Returns one string per input, or null where the AI's version
-// was missing or in the wrong script (after one retry of just the failed ones).
-async function translateBatch(batch, lang) {
+// was missing or in the wrong script (after one retry of just the failed ones, if there is time).
+async function translateBatch(batch, lang, timeLeft) {
   const result = batch.map(() => null);
   for (let attempt = 0; attempt < 2; attempt++) {
     const missing = batch.map((s, i) => [s, i]).filter(([, i]) => result[i] === null);
-    if (!missing.length) break;
+    if (!missing.length || timeLeft() < 4000) break;
     try {
       const text = await chat({
         model: TRANSLATE_MODEL,
@@ -75,6 +75,7 @@ async function translateBatch(batch, lang) {
           { role: 'system', content: translateSystem(lang) },
           { role: 'user', content: JSON.stringify(missing.map(([s]) => s)) },
         ],
+        signal: AbortSignal.timeout(Math.min(MAX_CALL_MS, timeLeft() - 1000)),
       });
       const t = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)).t;
       if (!Array.isArray(t) || t.length !== missing.length) continue;
@@ -89,12 +90,12 @@ async function translateBatch(batch, lang) {
   return result;
 }
 
-async function translate(strings, lang) {
+async function translate(strings, lang, timeLeft) {
   // Only non-empty strings go to the AI; empty ones stay empty.
   const todo = strings.map((s, i) => [s, i]).filter(([s]) => s && s.trim());
   const batches = [];
   for (let k = 0; k < todo.length; k += BATCH) batches.push(todo.slice(k, k + BATCH));
-  const results = await Promise.all(batches.map((b) => translateBatch(b.map(([s]) => s), lang)));
+  const results = await Promise.all(batches.map((b) => translateBatch(b.map(([s]) => s), lang, timeLeft)));
 
   const out = strings.map(() => '');
   let failed = 0;
@@ -111,6 +112,7 @@ async function translate(strings, lang) {
 }
 
 export default async (req) => {
+  const timeLeft = timeBudget();
   try {
     if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed.');
     const deviceId = requireDevice(req);
@@ -136,7 +138,7 @@ export default async (req) => {
     if (part === 'tailored' && !row.tailored) throw new HttpError(409, 'Your plan is not ready yet.');
 
     const { strings, build } = partStrings(row, part);
-    const result = build(await translate(strings, lang));
+    const result = build(await translate(strings, lang, timeLeft));
 
     // Re-read before saving so two parts translated close together don't overwrite each other.
     const [latest] = await selectContracts(`select=translations,tailored&${query}`);

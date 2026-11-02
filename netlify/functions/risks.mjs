@@ -13,13 +13,16 @@
 //   - wording that calls a contract safe, illegal or a scam is removed
 //   - plain rules (no AI) add "money goes to a person" and "no UEN" signs
 
-import { contractTask, clauseLookup, withReferencedParts } from '../lib/contract-task.mjs';
-import { RISKS_SYSTEM, RISK_REPAIR_SYSTEM, clausesForPrompt } from '../lib/prompts.mjs';
-import { chatJsonHedged, RISKS_MODEL, FUNCTION_LIMIT_MS } from '../lib/ai.mjs';
+import { contractTask, clauseLookup, withReferencedParts, TYPE_LABELS } from '../lib/contract-task.mjs';
+import { risksSystem, RISK_REPAIR_SYSTEM, clausesForPrompt } from '../lib/prompts.mjs';
+import { chatJsonHedged, RISKS_MODEL, MAX_CALL_MS } from '../lib/ai.mjs';
 import { cleanText } from '../lib/wording.mjs';
 import { checkPoint, locateQuote, norm } from '../lib/verify.mjs';
 
 const LEVELS = ['high', 'medium', 'info'];
+// Signs checked (from all groups together) and warnings shown, most serious first.
+const MAX_SIGNS = 12;
+const MAX_ITEMS = 10;
 const CATEGORIES = ['pay_to_start', 'personal_account', 'pressure', 'credentials', 'company_details', 'non_compete',
   'probation', 'one_sided_change', 'fee', 'renewal', 'cancellation', 'other'];
 
@@ -48,15 +51,64 @@ const DEFAULT_TITLES = {
   other: 'A term worth asking about',
 };
 
-export default contractTask({
-  field: 'risks',
-  system: RISKS_SYSTEM,
-  model: RISKS_MODEL,
-  maxTokens: 3000,
-  // Ultra takes ~15-25s on a long contract; a second request goes out if the first is stuck in the queue.
-  timing: { hedgeAfterMs: Math.round(FUNCTION_LIMIT_MS * 0.5), timeoutMs: FUNCTION_LIMIT_MS - 4000 },
-  build: buildRisks,
-});
+export default contractTask({ field: 'risks', run: makeRisks });
+
+// One call on the whole contract took Haiku 5-14s and sometimes missed a clause, so the contract
+// is checked in up to 3 groups of whole sections (all of 5.x stays together) at the same time.
+const MAX_GROUPS = 3;
+const GROUP_CHARS = 6000;
+// Fewer signs per group keeps each reply short: a group allowed 7 wrote ~1000 tokens and took 13.5s.
+const SIGNS_PER_GROUP = 4;
+
+function clauseGroups(clauses) {
+  const sections = [];
+  for (const c of clauses) {
+    const major = String(c.number).split('.')[0];
+    const last = sections[sections.length - 1];
+    if (last?.major === major) last.clauses.push(c);
+    else sections.push({ major, clauses: [c] });
+  }
+  const size = (list) => clausesForPrompt(list).length;
+  const count = Math.min(MAX_GROUPS, Math.ceil(size(clauses) / GROUP_CHARS));
+  const target = size(clauses) / count;
+  const groups = [[]];
+  for (const { clauses: part } of sections) {
+    const group = groups[groups.length - 1];
+    if (group.length && groups.length < count && size(group) + size(part) / 2 > target) groups.push([...part]);
+    else group.push(...part);
+  }
+  return groups;
+}
+
+async function makeRisks(clauses, row, timeLeft) {
+  const groups = clauseGroups(clauses);
+  if (process.env.CLAUSEWISE_DEBUG) console.log(`  risk check groups: ${groups.map((g) => `[${g[0].number}]-[${g[g.length - 1].number}] ${clausesForPrompt(g).length} chars`).join(', ')}`);
+  // If any group fails, the whole check fails (the app shows Try again): a missing group would
+  // silently leave out its warnings.
+  const answers = await Promise.all(groups.map((group, i) => chatJsonHedged({
+    model: RISKS_MODEL,
+    thinking: false,
+    maxTokens: 2000,
+    messages: [
+      { role: 'system', content: risksSystem(groups.length > 1 ? SIGNS_PER_GROUP : 7) },
+      {
+        role: 'user',
+        content: `Contract type: ${TYPE_LABELS[row.contract_type]}${groups.length > 1 ? `
+(Part ${i + 1} of ${groups.length} of the contract: check only these parts.)` : ''}
+
+${clausesForPrompt(withReferencedParts(clauses, group))}`,
+      },
+    ],
+  }, { hedgeAfterMs: 6000, timeoutMs: Math.min(MAX_CALL_MS, timeLeft() - 6000) })));
+
+  // Company details come from whichever group has them (usually the first, with the letterhead).
+  const company = {};
+  for (const key of ['name', 'uen', 'address', 'payee']) {
+    company[key] = answers.map((a) => a?.company?.[key]).find((v) => typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null') ?? null;
+  }
+  const signs = answers.flatMap((a) => (Array.isArray(a?.signs) ? a.signs : []));
+  return buildRisks({ company, signs }, clauses, row, timeLeft);
+}
 
 // "Account name: <name> Bank: <bank>…" -> { name, number }
 function findPayeeIn(clauses) {
@@ -67,6 +119,11 @@ function findPayeeIn(clauses) {
   return null;
 }
 const findPayee = (clauses) => findPayeeIn(clauses)?.name || null;
+
+// The AI sometimes copies the rewrite instructions into a warning ("The warning's numbers must
+// appear in the quote…"); people never see quotes called that, so those sentences are removed.
+const ABOUT_THE_CHECK = /\b(quote[sd]?|quoting)\b|\bthe warning['’]?s\b/i;
+const withoutCheckTalk = (s) => String(s || '').split(/(?<=[.!?])\s+/).filter((t) => !ABOUT_THE_CHECK.test(t)).join(' ');
 
 // Said by a warning kept from its clause's own words: it states no facts of its own.
 const CLAUSE_ONLY_NOTE = 'Read what this part of the contract says, and ask about it before you sign.';
@@ -88,20 +145,25 @@ function excerpt(text, about) {
 }
 
 // Last step for a warning that failed the quote check twice: it is kept on its clause, quoted word
-// for word. First with the AI's own title and explanation, if every fact in them is in that clause;
-// otherwise with a plain title for its kind and no facts at all. Null only when the warning points
-// at no clause in the contract.
+// for word (the whole clause if short, else its most relevant sentences). It keeps the AI's title if
+// every fact in it is in that quote, and only the explanation sentences whose facts are too;
+// otherwise a plain title for its kind and no facts at all. Null only when the warning points at no
+// clause in the contract.
 function clauseOnly(clauses, byNumber, homes, category, tries) {
+  const about = tries.map((t) => `${t?.title || ''} ${t?.explanation || ''} ${t?.quote || ''}`).join(' ');
   for (const n of homes) {
     const text = byNumber.get(n).text.trim();
-    if (text.length > MAX_CLAUSE_QUOTE) continue;
-    for (const t of tries) {
-      if (!t?.title) continue;
-      const check = checkPoint(clauses, { texts: [t.title, t.explanation], quotes: [text], cited: [n] });
-      if (check.ok) return { title: t.title, explanation: t.explanation, check };
+    const quotes = [...new Set([text.length <= MAX_CLAUSE_QUOTE ? text : null, excerpt(text, about)].filter(Boolean))];
+    for (const quote of quotes) {
+      const passes = (s) => checkPoint(clauses, { texts: [s], quotes: [quote], cited: [n] }).ok;
+      for (const t of tries) {
+        if (!t?.title || !passes(t.title)) continue;
+        const explanation = String(t.explanation || '').split(/(?<=[.!?])\s+/).filter((s) => s && passes(s)).join(' ') || CLAUSE_ONLY_NOTE;
+        const check = checkPoint(clauses, { texts: [t.title, explanation], quotes: [quote], cited: [n] });
+        if (check.ok) return { title: t.title, explanation, check };
+      }
     }
   }
-  const about = tries.map((t) => `${t?.title || ''} ${t?.explanation || ''} ${t?.quote || ''}`).join(' ');
   for (const n of homes) {
     const check = checkPoint(clauses, { texts: [DEFAULT_TITLES[category], CLAUSE_ONLY_NOTE], quotes: [excerpt(byNumber.get(n).text, about)], cited: [n] });
     if (check.ok) return { title: DEFAULT_TITLES[category], explanation: CLAUSE_ONLY_NOTE, check };
@@ -114,8 +176,10 @@ const COMPANY_WORDS = /\b(pte|ltd|limited|llp|inc|corp|company|bank|agency|minis
 const simple = (s) => String(s || '').toLowerCase().replace(/\b(pte|ltd|private|limited|llp)\b|[^a-z0-9]/g, '');
 
 // Second try for a sign that failed the quote check: the AI sees what was wrong and the parts it
-// cited (plus any schedule they mention), and must quote every fact or leave it out.
-async function repairSign(clauses, sign, cited, why) {
+// cited (plus any schedule they mention), and must quote every fact or leave it out. Skipped when
+// there isn't time: the sign is then kept from its clause's own words instead (clauseOnly).
+async function repairSign(clauses, sign, cited, why, timeLeft) {
+  if (timeLeft() < 6000) return null;
   const parts = cited.length ? withReferencedParts(clauses, clauses.filter((c) => cited.includes(c.number))) : clauses;
   try {
     return await chatJsonHedged({
@@ -126,13 +190,13 @@ async function repairSign(clauses, sign, cited, why) {
         { role: 'system', content: RISK_REPAIR_SYSTEM },
         { role: 'user', content: `Warning sign: ${sign.title}\n${sign.explanation || ''}\nProblem: ${why}. For each of those items, make sure it is inside the quote or leave it out.\n\nTHE CONTRACT PARTS:\n${clausesForPrompt(parts).slice(0, 20000)}` },
       ],
-    }, { hedgeAfterMs: 5000, timeoutMs: Math.min(12000, FUNCTION_LIMIT_MS * 0.2) });
+    }, { hedgeAfterMs: 5000, timeoutMs: Math.min(8000, timeLeft() - 2000) });
   } catch {
     return null;
   }
 }
 
-async function buildRisks(ai, clauses, row) {
+async function buildRisks(ai, clauses, row, timeLeft) {
   const lookup = clauseLookup(clauses);
   const byNumber = new Map(clauses.map((c) => [c.number, c]));
   const allText = norm(clauses.map((c) => c.text).join('\n'));
@@ -156,20 +220,23 @@ async function buildRisks(ai, clauses, row) {
   // told what was wrong; if that fails too, it is kept from its clause's own words (clauseOnly).
   const refsOf = (s) => [...new Set((Array.isArray(s?.clauses) ? s.clauses : []).map(lookup).filter(Boolean))];
   const checkSign = (s) => {
-    const title = cleanText(s?.title, 90);
-    const explanation = cleanText(s?.explanation, 260);
+    const title = cleanText(withoutCheckTalk(s?.title), 90);
+    const explanation = cleanText(withoutCheckTalk(s?.explanation), 260);
     return { title, explanation, quote: s?.quote, check: checkPoint(clauses, { texts: [title, explanation], quotes: [s?.quote], cited: refsOf(s) }) };
   };
   // The clauses a sign is about: the ones it cites, then the ones its quote comes from.
   const homesOf = (s) => [...new Set([...refsOf(s), ...(locateQuote(clauses, s?.quote, refsOf(s)) || [])])].filter((n) => byNumber.has(n));
-  const signs = (Array.isArray(ai?.signs) ? ai.signs : [])
+  const rankAi = (s) => (LEVELS.includes(s?.level) ? LEVELS.indexOf(s.level) : 1);
+  const all = (Array.isArray(ai?.signs) ? ai.signs : [])
     .filter((s) => s?.category !== 'company_details') // checked by the rule below instead
-    .slice(0, 9);
+    .sort((a, b) => rankAi(a) - rankAi(b));
+  const signs = all.slice(0, MAX_SIGNS);
+  if (all.length > MAX_SIGNS) console.log(`${all.length - MAX_SIGNS} more warning signs not checked (only the first ${MAX_SIGNS} are).`);
   const checked = await Promise.all(signs.map(async (s) => {
     const category = CATEGORIES.includes(s?.category) ? s.category : 'other';
     const first = checkSign(s);
     if (first.check.ok) return { s, category, ...first };
-    const fixed = await repairSign(clauses, s, refsOf(s), first.check.why);
+    const fixed = await repairSign(clauses, s, refsOf(s), first.check.why, timeLeft);
     const second = fixed?.title ? checkSign(fixed) : null;
     const failed = `Warning sign (${category}, "${first.title}") failed the check: ${first.check.why}.`;
     if (second?.check.ok) {
@@ -264,5 +331,6 @@ async function buildRisks(ai, clauses, row) {
 
   const rank = (i) => LEVELS.indexOf(i.level) * 2 + (i.kind === 'scam_sign' ? 0 : 1);
   items.sort((a, b) => rank(a) - rank(b));
-  return { company, items: items.slice(0, 8) };
+  if (items.length > MAX_ITEMS) console.log(`${items.length - MAX_ITEMS} lower warnings not shown (at most ${MAX_ITEMS}).`);
+  return { company, items: items.slice(0, MAX_ITEMS) };
 }

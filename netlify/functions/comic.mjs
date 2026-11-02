@@ -11,7 +11,7 @@
 import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
 import { selectContracts, updateContract } from '../lib/supabase.mjs';
 import { splitClauses } from '../lib/clauses.mjs';
-import { chatJsonHedged, COMIC_MODEL } from '../lib/ai.mjs';
+import { chatJsonHedged, COMIC_MODEL, MAX_CALL_MS } from '../lib/ai.mjs';
 import { COMIC_SYSTEM, COMIC_PARTS } from '../lib/prompts.mjs';
 import { clauseLookup, TYPE_LABELS } from '../lib/contract-task.mjs';
 import { cleanText } from '../lib/wording.mjs';
@@ -57,7 +57,7 @@ export default async (req) => {
           ].join('\n\n'),
         },
       ],
-    }, { hedgeAfterMs: 9000, timeoutMs: 26000 });
+    }, { hedgeAfterMs: 9000, timeoutMs: MAX_CALL_MS });
 
     const comic = buildComic(ai, clause);
     await updateContract(query, { clauses, comics: [...comics, comic] });

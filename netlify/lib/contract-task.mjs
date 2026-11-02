@@ -5,7 +5,7 @@
 import { HttpError, errorResponse, requireDevice, contractIdParam } from './http.mjs';
 import { selectContracts, updateContract } from './supabase.mjs';
 import { splitClauses } from './clauses.mjs';
-import { chatJsonHedged, TEXT_MODEL } from './ai.mjs';
+import { chatJsonHedged, timeBudget, MAX_CALL_MS, TEXT_MODEL } from './ai.mjs';
 import { clausesForPrompt } from './prompts.mjs';
 
 export const TYPE_LABELS = {
@@ -46,11 +46,13 @@ export function withReferencedParts(clauses, parts) {
 }
 
 // Either give `system` + `build` (one AI call, then build the result from its JSON),
-// or `run(clauses, row)` for a task that needs its own AI calls.
+// or `run(clauses, row, timeLeft)` for a task that needs its own AI calls. Both get `timeLeft()`,
+// the milliseconds still free for AI steps (ai.mjs timeBudget).
 export function contractTask({
-  field, system, model = TEXT_MODEL, maxTokens = 2000, timing = { hedgeAfterMs: 13000, timeoutMs: 26000 }, build, run,
+  field, system, model = TEXT_MODEL, maxTokens = 2000, timing = { hedgeAfterMs: 10000, timeoutMs: MAX_CALL_MS }, build, run,
 }) {
   return async (req) => {
+    const timeLeft = timeBudget();
     try {
       if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed.');
       const deviceId = requireDevice(req);
@@ -66,7 +68,7 @@ export function contractTask({
       if (!clauses.length) throw new HttpError(422, 'We could not find any clauses in this contract.');
 
       const result = run
-        ? await run(clauses, row)
+        ? await run(clauses, row, timeLeft)
         : await build(await chatJsonHedged({
           model,
           thinking: false,
@@ -75,7 +77,7 @@ export function contractTask({
             { role: 'system', content: system },
             { role: 'user', content: `Contract type: ${TYPE_LABELS[row.contract_type]}\n\n${clausesForPrompt(clauses)}` },
           ],
-        }, timing), clauses, row);
+        }, timing), clauses, row, timeLeft);
       await updateContract(query, { clauses, [field]: result });
       return Response.json({ clauses, [field]: result });
     } catch (err) {

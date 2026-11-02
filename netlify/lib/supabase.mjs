@@ -38,19 +38,47 @@ async function check(res, what) {
   throw new HttpError(502, `Could not ${what}. Please try again.`);
 }
 
-// Supabase sometimes returns a brief 5xx (e.g. Cloudflare 520). Requests that are safe
-// to repeat are retried once after a short pause. Each try gives up after 10s, so a stuck
-// request can't hold the function past its time limit.
-async function fetchRetry(url, options) {
-  try {
-    const res = await fetch(url, { ...options, signal: AbortSignal.timeout(10000) });
-    if (res.status < 500) return res;
-    console.warn(`Supabase ${res.status}, retrying once:`, url.split('?')[0]);
-  } catch (err) {
-    console.warn('Supabase connection failed, retrying once:', err.message);
-  }
-  await new Promise((r) => setTimeout(r, 600));
-  return fetch(url, { ...options, signal: AbortSignal.timeout(10000) });
+// For requests that are safe to repeat. Supabase usually answers in well under a second, but on a
+// patchy connection opening it can stall for 3-10s, and it sometimes returns a brief 5xx (e.g.
+// Cloudflare 520). So a second, identical request on a fresh connection goes out after HEDGE_MS (or
+// at once if the first fails), and whichever answers first is used. Each try gives up after 10s,
+// so a stuck request can't hold the function past its time limit.
+const HEDGE_MS = 2500;
+
+function fetchRetry(url, options) {
+  return new Promise((resolve, reject) => {
+    const controllers = [];
+    let settled = false;
+    let failures = 0;
+    let lastError;
+    const launch = () => {
+      const controller = new AbortController();
+      controllers.push(controller);
+      const timer = setTimeout(() => controller.abort(new Error('Supabase did not answer within 10s')), 10000);
+      fetch(url, { ...options, signal: controller.signal })
+        .then((res) => {
+          if (res.status >= 500) throw new HttpError(502, `Supabase ${res.status}`);
+          if (settled) return;
+          settled = true;
+          controllers.filter((c) => c !== controller).forEach((c) => c.abort());
+          resolve(res);
+        })
+        .catch((err) => {
+          if (settled) return;
+          lastError = err;
+          failures++;
+          console.warn(`Supabase request failed (${err.message})${controllers.length < 2 ? ', trying again' : ''}:`, url.split('?')[0]);
+          if (controllers.length < 2) launch();
+          else if (failures >= controllers.length) {
+            console.error('Supabase did not answer:', lastError.message);
+            reject(new HttpError(502, 'Could not reach your saved contracts. Please try again.'));
+          }
+        })
+        .finally(() => clearTimeout(timer));
+    };
+    launch();
+    setTimeout(() => { if (!settled && controllers.length < 2) launch(); }, HEDGE_MS);
+  });
 }
 
 // ---------- Table: contracts ----------

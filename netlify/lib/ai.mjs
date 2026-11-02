@@ -1,6 +1,6 @@
 // The one place the functions call the AI from. AI_PROVIDER in .env picks who answers:
-//   claude (default) - the Claude API: one model for everything (ANTHROPIC_MODEL) except the risk
-//                      check (ANTHROPIC_RISK_MODEL), see claude.mjs
+//   claude (default) - the Claude API: ANTHROPIC_MODEL for everything, and ANTHROPIC_RISK_MODEL
+//                      for the risk check (both Haiku), see claude.mjs
 //   nvidia           - the NVIDIA Build models used before, see nvidia.mjs
 // Both get the same prompts and messages, so every reply keeps the same JSON shape.
 
@@ -12,9 +12,9 @@ export const AI_PROVIDER = String(process.env.AI_PROVIDER || 'claude').trim().to
 
 // Haiku is the fastest and cheapest Claude model: each call stays well under 20s.
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5';
-// Haiku missed or garbled warning signs it couldn't quote (non-compete, probation), so the risk
-// check gets Sonnet: slower, but the warnings are what people rely on most.
-const CLAUDE_RISK_MODEL = process.env.ANTHROPIC_RISK_MODEL || 'claude-sonnet-5-5';
+// The risk check has its own setting. Sonnet was tried and ran past the 30s function limit, so it
+// is Haiku too; warnings that fail the quote check are kept from their clause's words (risks.mjs).
+const CLAUDE_RISK_MODEL = process.env.ANTHROPIC_RISK_MODEL || CLAUDE_MODEL;
 const pick = (job) => (AI_PROVIDER === 'claude' ? (job === 'risks' ? CLAUDE_RISK_MODEL : CLAUDE_MODEL) : NVIDIA_MODELS[job]);
 
 export const VISION_MODEL = pick('vision');
@@ -27,9 +27,18 @@ export const VERIFY_MODEL = pick('verify');
 export const TAILOR_MODEL = pick('tailor');
 export const TRANSLATE_MODEL = pick('translate');
 
-// How long a function may run: 60s on the live site (Netlify's synchronous execution limit),
-// but netlify dev stops functions after 30s. Long contracts on Ultra need the extra time live.
-export const FUNCTION_LIMIT_MS = process.env.NETLIFY_DEV === 'true' ? 30000 : 60000;
+// How long a function may run: Netlify stops it after 30s, on the live site and in netlify dev.
+export const FUNCTION_LIMIT_MS = 30000;
+// The longest one AI call may take before it is given up (with a clear "try again" message).
+export const MAX_CALL_MS = 15000;
+
+// Time left for a request's AI steps, counted from when it came in. Keeps a few seconds back for
+// saving the result, so the function always answers before Netlify stops it. Later steps (rewrites,
+// shortening) only run if there is time for them.
+export function timeBudget() {
+  const started = Date.now();
+  return () => FUNCTION_LIMIT_MS - 4000 - (Date.now() - started);
+}
 
 export function chat(options) {
   return AI_PROVIDER === 'claude' ? claudeChat(options) : nvidiaChat(options);

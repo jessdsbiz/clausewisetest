@@ -23,7 +23,7 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 
 **Technical constraints**
 - Plain HTML, CSS and JavaScript (no framework).
-- AI calls go only through Netlify Functions (`netlify/functions`) using the Claude API: Claude Haiku (`ANTHROPIC_MODEL`) for everything except the risk check, which uses Claude Sonnet (`ANTHROPIC_RISK_MODEL`). NVIDIA Build models stay as a backup (`AI_PROVIDER=nvidia`). `ANTHROPIC_API_KEY` and `NVIDIA_API_KEY` live in `.env` and never in browser files.
+- AI calls go only through Netlify Functions (`netlify/functions`) using the Claude API: Claude Haiku (`ANTHROPIC_MODEL`), with the risk check on its own setting (`ANTHROPIC_RISK_MODEL`, also Haiku). NVIDIA Build models stay as a backup (`AI_PROVIDER=nvidia`). `ANTHROPIC_API_KEY` and `NVIDIA_API_KEY` live in `.env` and never in browser files.
 - pdf.js extracts PDF text in the browser. Claude Haiku reads photos (an NVIDIA Build vision model on the backup).
 - Supabase stores uploads. Browser Web Speech API handles read-aloud.
 - Runs locally with `netlify dev`. Tested on the fictional BrightPath job offer.
@@ -92,7 +92,8 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - [ ] Before an answer is shown, a second check confirms the cited clause actually says what the answer claims; if not, the reply is "I'm not sure, ask an expert."
 - [ ] Answers pass the same code quote check as summary points. Only the parsed answer is shown, never raw AI output such as `clauses: [...]` or `quote: "..."`.
 - [ ] Before replying "I'm not sure", the chatbot searches the whole document again, including the schedules and tables a clause points to. On the school fees contract, "When am I supposed to pay my school fees?" lists the instalment dates from Schedule B and tags "Schedule B".
-- [ ] The risk check uses Claude Sonnet. The summary, plan and chat use Claude Haiku, so each AI call stays under 20 seconds. Each model is one setting in `.env`.
+- [ ] Every AI step uses Claude Haiku, so each call finishes in under 15 seconds and every function answers within Netlify's 30-second limit. The risk check's model is its own setting in `.env`.
+- [ ] Every AI step has a time limit, on the server and in the browser (35 seconds). If it runs out, the screen shows a clear message and a Try again button; nothing spins forever.
 - [ ] Summary, Risks, Comic captions and Ask replies can be shown in English, Chinese, Malay or Tamil, and the language can be changed after upload.
 - [ ] A read-aloud button speaks the current content using the Web Speech API in the selected language, and can be stopped.
 - [ ] The original clause text always stays in the contract's own language so it can be checked.

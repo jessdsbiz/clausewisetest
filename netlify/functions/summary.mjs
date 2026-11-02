@@ -11,11 +11,12 @@ import { contractTask, clauseLookup, withReferencedParts, TYPE_LABELS } from '..
 import {
   summarySystem, SUMMARY_ROWS, OTHER_TYPE_WORDS, PLAIN_SWAPS, SHORTEN_SYSTEM, REPAIR_SYSTEM, clausesForPrompt,
 } from '../lib/prompts.mjs';
-import { chatJsonHedged, SUMMARY_MODEL, FUNCTION_LIMIT_MS } from '../lib/ai.mjs';
+import { chatJsonHedged, SUMMARY_MODEL } from '../lib/ai.mjs';
 import { cleanText } from '../lib/wording.mjs';
 import { checkPoint, unsupportedFacts } from '../lib/verify.mjs';
 
 const MAX_WORDS = 35;
+const SUMMARY_CALL_MS = 20000;
 
 export default contractTask({ field: 'summary', run: makeSummary });
 
@@ -36,7 +37,8 @@ function polish(text, type, offTopic) {
   return kept.join(' ').trim();
 }
 
-async function shorten(text, type, label, offTopic) {
+async function shorten(text, type, label, offTopic, timeLeft) {
+  if (timeLeft() < 4000) return text; // no time left: a long row is better than no row
   try {
     // Usually ~1s; capped short so a slow moment can't push the summary past the time limit.
     const { plain } = await chatJsonHedged({
@@ -47,7 +49,7 @@ async function shorten(text, type, label, offTopic) {
         { role: 'system', content: SHORTEN_SYSTEM },
         { role: 'user', content: `Topic: ${label}\nCurrent length: ${wordCount(text)} words (too long)\nText: ${text}` },
       ],
-    }, { hedgeAfterMs: 2500, timeoutMs: 4500 });
+    }, { hedgeAfterMs: 2500, timeoutMs: Math.min(4500, timeLeft() - 1500) });
     const short = polish(plain, type, offTopic);
     return short && wordCount(short) < wordCount(text) ? short : text;
   } catch {
@@ -55,11 +57,12 @@ async function shorten(text, type, label, offTopic) {
   }
 }
 
-async function makeSummary(clauses, row) {
+async function makeSummary(clauses, row, timeLeft) {
   const type = row.contract_type;
   const rows = SUMMARY_ROWS[type];
   const contract = clausesForPrompt(clauses);
-  // The time limit leaves room for the shorten pass and saving before the function's own limit.
+  // Haiku sometimes takes 13-15s here, so these calls get up to 20s; that still leaves 6s of the
+  // budget for rewrites and saving.
   const ask = (subset, withDates) => chatJsonHedged({
     model: SUMMARY_MODEL,
     thinking: false,
@@ -68,11 +71,13 @@ async function makeSummary(clauses, row) {
       { role: 'system', content: summarySystem(TYPE_LABELS[type], subset, withDates) },
       { role: 'user', content: contract },
     ],
-  }, { hedgeAfterMs: Math.round(FUNCTION_LIMIT_MS * 0.4), timeoutMs: FUNCTION_LIMIT_MS - 8000 });
+  }, { hedgeAfterMs: 6000, timeoutMs: Math.min(SUMMARY_CALL_MS, timeLeft() - 6000) });
 
-  // Two smaller calls at the same time finish sooner than one big one.
+  // Three small calls at the same time (two rows each, key dates with the last) finish sooner than
+  // two bigger ones.
+  const groups = rows ? [rows.slice(0, 2), rows.slice(2, 4), rows.slice(4)].filter((g) => g.length) : [];
   const parts = rows
-    ? await Promise.all([ask(rows.slice(0, 3), false), ask(rows.slice(3), true)])
+    ? await Promise.all(groups.map((g, i) => ask(g, i === groups.length - 1)))
     : [await ask(null, true)];
 
   const lookup = clauseLookup(clauses);
@@ -104,7 +109,7 @@ async function makeSummary(clauses, row) {
     let check = checkPoint(clauses, { texts: [plain], quotes: r?.quotes, cited });
     let text = plain;
     if (!check.ok) {
-      const fixed = await repair(clauses, label, plain, cited, check.why);
+      const fixed = await repair(clauses, label, plain, cited, check.why, timeLeft);
       text = fixed ? polish(fixed.plain, type, offTopic) : '';
       const recheck = text && checkPoint(clauses, { texts: [text], quotes: fixed.quotes, cited: validRefs(fixed.clauses) });
       console.log(`Summary point (${label}) failed the check: ${check.why}. Rewrite ${recheck?.ok ? 'passed' : `failed${recheck ? `: ${recheck.why}` : ''}`}.`);
@@ -115,7 +120,7 @@ async function makeSummary(clauses, row) {
     // A row that is still too long gets one shorter rewrite. It is checked against the same
     // quotes, so the rewrite can't slip in a new fact.
     if (wordCount(text) > MAX_WORDS) {
-      const short = await shorten(text, type, label, offTopic);
+      const short = await shorten(text, type, label, offTopic, timeLeft);
       if (!unsupportedFacts(short, check.quotes).length) text = short;
     }
     return { key, label, found: true, plain_text: text, clause_numbers: check.clause_numbers };
@@ -126,7 +131,8 @@ async function makeSummary(clauses, row) {
 
 // Second try for a point that failed the quote check: the AI sees what was wrong and the parts
 // of the contract it cited (plus any schedule they mention), and must quote every fact or drop it.
-async function repair(clauses, label, plain, cited, why) {
+async function repair(clauses, label, plain, cited, why, timeLeft) {
+  if (timeLeft() < 6000) return null;
   const parts = cited.length ? withReferencedParts(clauses, clauses.filter((c) => cited.includes(c.number))) : clauses;
   try {
     return await chatJsonHedged({
@@ -137,7 +143,7 @@ async function repair(clauses, label, plain, cited, why) {
         { role: 'system', content: REPAIR_SYSTEM },
         { role: 'user', content: `Topic: ${label}\nPoint: ${plain}\nProblem: ${why}. For each of those items, add a quote that contains it or leave it out.\n\nTHE CONTRACT PARTS:\n${clausesForPrompt(parts).slice(0, 20000)}` },
       ],
-    }, { hedgeAfterMs: 5000, timeoutMs: Math.min(12000, FUNCTION_LIMIT_MS * 0.2) });
+    }, { hedgeAfterMs: 5000, timeoutMs: Math.min(8000, timeLeft() - 2000) });
   } catch {
     return null;
   }

@@ -66,7 +66,7 @@ export const OTHER_TYPE_WORDS = {
 
 const STYLE_EXAMPLE = `"This plan lasts <N> months. To cancel, tell them in the app or a store in the last <N> days before it ends. Miss that and it renews for <N> more months at S$<amount>."`;
 
-// `rows` is the subset of rows this call fills in (the summary is split into two calls that run
+// `rows` is the subset of rows this call fills in (the summary is split into small calls that run
 // at the same time, to stay within the time limit). `withDates` adds the "key_dates" list.
 export function summarySystem(typeLabel, rows, withDates) {
   const datesShape = withDates ? ',\n  "key_dates": [ { "plain": "...", "clauses": ["..."], "quotes": ["..."] } ]' : '';
@@ -133,8 +133,8 @@ Reply with JSON only: { "plain": "...", "clauses": ["<label>"], "quotes": ["..."
 // contract parts it came from.
 export const RISK_REPAIR_SYSTEM = `You fix one warning sign about a contract, for someone with no legal background. It could not be shown because its facts could not be checked against the contract.
 ${READING_RULES}
-Rewrite it about the same problem using only the exact words of the clause it is about: copy the quote word for word from that clause, and every number, amount, date and name in "title" and "explanation" must be inside your quote. Leave out any fact that is not in the clause. Never give up on the warning: if a detail can't be quoted, describe the problem without it. For the quote, ${QUOTE_RULE}
-"title": at most 9 words. "explanation": 1 or 2 short sentences, at most 30 words, written to "you". Never join facts from different clauses.
+Rewrite it about the same problem using only the exact words of the clause it is about: copy the quote word for word from that clause, and every number, amount, date and name in "title" and "explanation" must be inside your quote, written the way the quote does (never convert or round, e.g. "24 months", not "two years"). Leave out any fact that is not in the clause. Never give up on the warning: if a detail can't be quoted, describe the problem without it. For the quote, ${QUOTE_RULE}
+"title": at most 9 words. "explanation": 1 or 2 short sentences, at most 30 words, written to "you". Never join facts from different clauses: if the warning mixed two clauses, keep the one its title is mainly about.
 Reply with JSON only: { "title": "...", "explanation": "...", "clauses": ["<label>"], "quote": "..." }`;
 
 // Deterministic clean-up of legal words the AI still lets through.
@@ -306,7 +306,9 @@ Reply with JSON only, no other text:
   ]
 }`;
 
-export const RISKS_SYSTEM = `You check contracts for warning signs, for people in Singapore with no legal background.
+// `maxSigns`: the risk check reads the contract in parts at the same time, with fewer signs per part
+// so each reply stays short (and quick).
+export const risksSystem = (maxSigns = 7) => `You check contracts for warning signs, for people in Singapore with no legal background.
 ${READING_RULES}
 
 There are two kinds of sign. Be strict about which is which.
@@ -339,10 +341,11 @@ Rules:
 - Do not flag normal terms like CPF deductions, standard confidentiality, or ordinary working hours.
 - "clauses": the labels of the parts, exactly as in the brackets.
 - "quote": the words that show the problem. ${QUOTE_RULE}
-- "title": what it means for you, at most 9 words, in plain words. It may only use numbers and names that are in your quote.
-- "explanation": 1 or 2 short plain-English sentences, at most 30 words, written to "you". Same rule on numbers and names.
+- "title": what it means for you, at most 9 words, in plain words.
+- "explanation": 1 or 2 short plain-English sentences, at most 30 words, written to "you".
+- In "title" and "explanation", only use numbers, amounts, dates, time periods and names that appear in the clause you quote, and make sure each one is inside your quote. Write them the way the quote does: never convert or round (if the quote says "twenty-four (24) months", write "24 months", not "two years"). Never bring in a number from another clause, even a related one such as a penalty or notice period elsewhere: if it matters, make it its own sign with its own quote.
 - NEVER call the contract or company safe, legal, illegal, unlawful, fraud or a scam, and never say something is "not allowed". Instead say "a common scam sign", "worth asking about", or "check before you pay".
-- At most 7 signs, most serious first. One sign per problem, no duplicates. An empty list is a good answer when nothing stands out.
+- At most ${maxSigns} signs, most serious first. One sign per problem, no duplicates. An empty list is a good answer when nothing stands out.
 
 Also copy these details from the contract, or null if not written:
 - company.name: the employer / company name.
