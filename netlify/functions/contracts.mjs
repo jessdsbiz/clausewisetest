@@ -72,9 +72,13 @@ async function list(deviceId) {
     key_dates: Array.isArray(summary)
       ? summary.map((s, index) => ({ s, index })).filter(({ s }) => s.key === 'key_date' && s.found !== false)
         .map(({ s, index }) => {
-          // Shown in the contract's language when it has been translated; the English original is kept for the dates.
-          const translated = translations?.[row.language]?.summary?.[index]?.plain_text;
-          return { text: translated || s.plain_text || '', source: s.plain_text || '', clauses: Array.isArray(s.clause_numbers) ? s.clause_numbers : [] };
+          // Every translation the contract has, so Deadlines can show the language on screen (the English is the fallback).
+          const texts = {};
+          for (const [lang, parts] of Object.entries(translations || {})) {
+            const t = parts?.summary?.[index]?.plain_text;
+            if (t) texts[lang] = t;
+          }
+          return { text: texts[row.language] || s.plain_text || '', texts, source: s.plain_text || '', clauses: Array.isArray(s.clause_numbers) ? s.clause_numbers : [] };
         })
       : [],
   })));

@@ -854,6 +854,7 @@ screen.addEventListener('change', (e) => {
   } else if (t.id === 'lang-select') {
     scan.language = t.value;
     saveLanguage(t.value);
+    refreshContractsList();
     render();
   } else if (t.name === 'contract_type') {
     scan.contractType = t.value;
@@ -1036,7 +1037,8 @@ function deadlineRows() {
   const rows = [];
   for (const r of contractsList || []) {
     (r.key_dates || []).forEach((kd, i) => {
-      const text = kd.text || '';
+      // The sentence in the language on screen, when this contract has it; otherwise the English original.
+      const text = kd.texts?.[shellLang()] || kd.source || kd.text || '';
       const source = kd.source || text; // the English original: dates and kinds are read from it
       const date = parseDayMonth(source);
       const days = date ? Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - today) / ONE_DAY) : null;
@@ -1144,17 +1146,15 @@ function renderExperts() {
 const contractCache = new Map();
 
 async function loadContract(id) {
-  if (!contractCache.has(id)) {
-    const c = await api(`contracts?id=${encodeURIComponent(id)}`, { what: 'opening this contract' });
-    contractCache.set(id, c);
-    // The language chosen last is used for this contract too (its summary etc. are translated on demand).
-    if (c.language && c.language !== scan.language) {
-      c.language = scan.language;
-      api(`contracts?id=${encodeURIComponent(id)}`, { method: 'PATCH', json: { language: c.language } })
-        .catch(() => toast('Could not save your language choice. It will reset next time.'));
-    }
+  if (!contractCache.has(id)) contractCache.set(id, await api(`contracts?id=${encodeURIComponent(id)}`, { what: 'opening this contract' }));
+  const c = contractCache.get(id);
+  // The language chosen last (on Home or on a contract) is used for every contract, every time it is opened.
+  if (c.language && scan.language && c.language !== scan.language) {
+    c.language = scan.language;
+    api(`contracts?id=${encodeURIComponent(id)}`, { method: 'PATCH', json: { language: c.language } })
+      .catch(() => toast('Could not save your language choice. It will reset next time.'));
   }
-  return contractCache.get(id);
+  return c;
 }
 
 // "4.4" -> "Clause 4.4"; named sections like "Acceptance" stay as they are.
@@ -3166,6 +3166,7 @@ function setLanguage(c, lang) {
   c.language = lang;
   scan.language = lang; // the choice carries to Home and the other screens
   saveLanguage(lang);
+  refreshContractsList();
   render();
   api(`contracts?id=${encodeURIComponent(c.id)}`, { method: 'PATCH', json: { language: lang } })
     .catch(() => toast('Could not save your language choice. It will reset next time.'));
@@ -4822,11 +4823,16 @@ function translateText(lang, t) {
   return null;
 }
 
+// Every text node and label we change remembers its original (English) text, and the text we last showed.
+// Each language is then translated from the original, never from the previous language, and English
+// restores the original. So switching languages (in any order) never leaves the previous language behind.
+const textOriginals = new WeakMap(); // text node -> { orig, shown }
+const attrOriginals = new WeakMap(); // element -> { attribute: { orig, shown } }
+
 function localizeDom() {
   if (localizing) return;
   const lang = shellLang() || 'en';
   document.documentElement.lang = LANG_HTML[lang] || 'en';
-  if (!UI_TEXT[lang]) return;
   localizing = true;
   try {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -4836,18 +4842,36 @@ function localizeDom() {
       const el = node.parentElement;
       if (!el || el.closest('script, style, svg, [data-keep]')) continue;
       const raw = node.nodeValue;
-      const t = raw.trim().replace(/\s+/g, ' ');
+      let rec = textOriginals.get(node);
+      // The text was replaced by the app itself: its new text is the original now.
+      if (!rec || rec.shown !== raw) {
+        rec = { orig: raw, shown: raw };
+        textOriginals.set(node, rec);
+      }
+      const t = rec.orig.trim().replace(/\s+/g, ' ');
       if (!t) continue;
       const tr = translateText(lang, t);
-      if (tr && tr !== t) node.nodeValue = raw.replace(raw.trim(), tr);
+      const next = tr && tr !== t ? rec.orig.replace(rec.orig.trim(), tr) : rec.orig;
+      if (next !== raw) node.nodeValue = next;
+      rec.shown = next;
     }
     for (const el of document.body.querySelectorAll('[aria-label], [title], [placeholder], [alt]')) {
       if (el.closest('svg, script, style, [data-keep]')) continue;
+      const recs = attrOriginals.get(el) || {};
+      attrOriginals.set(el, recs);
       for (const a of ['aria-label', 'title', 'placeholder', 'alt']) {
-        const v = el.getAttribute(a);
-        if (!v) continue;
-        const tr = translateText(lang, v.trim().replace(/\s+/g, ' '));
-        if (tr && tr !== v) el.setAttribute(a, tr);
+        const current = el.getAttribute(a);
+        if (current === null) continue;
+        let rec = recs[a];
+        if (!rec || rec.shown !== current) {
+          rec = { orig: current, shown: current };
+          recs[a] = rec;
+        }
+        const t = rec.orig.trim().replace(/\s+/g, ' ');
+        const tr = translateText(lang, t);
+        const next = tr && tr !== t ? tr : rec.orig;
+        if (next !== current) el.setAttribute(a, next);
+        rec.shown = next;
       }
     }
   } finally {
