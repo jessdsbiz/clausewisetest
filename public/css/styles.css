@@ -2572,3 +2572,8 @@ html[data-layout="desktop"] .help-chip { padding: 0 12px; }
 .dt-drop-title,
 .dt-drop-sub,
 .dt-recent-title { min-width: 0; overflow-wrap: anywhere; }
+
+/* ---------- Voice input: the grey line of what is being heard, and the Stop button ---------- */
+.voice-interim { margin: 6px 2px 0; color: #6E6890; font-size: 14px; font-style: italic; line-height: 1.45; min-height: 1.2em; overflow-wrap: anywhere; }
+.mic-btn.mic-btn-stop { width: auto; min-width: 44px; padding: 0 12px; gap: 6px; display: inline-flex; align-items: center; justify-content: center; background: #B42318; color: #FFFFFF; font-size: 14px; font-weight: 800; }
+.mic-btn.mic-btn-stop svg { stroke: #FFFFFF; fill: #FFFFFF; width: 14px; height: 14px; }

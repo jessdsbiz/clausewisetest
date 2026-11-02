@@ -955,9 +955,12 @@ function micClick(e) {
   const w = scanWords(btn.dataset.lang);
   listenInto(btn.dataset.mic, btn.dataset.lang, {
     onState: (on) => {
+      // While listening the button reads "Stop": one tap ends the session, and the text stays editable.
       btn.setAttribute('aria-pressed', String(on));
+      btn.classList.toggle('mic-btn-stop', on);
+      btn.innerHTML = on ? `${icons.stopSquare}<span>Stop</span>` : icons.mic;
       btn.title = on ? w.listening : w.mic;
-      btn.setAttribute('aria-label', on ? w.listening : w.mic);
+      btn.setAttribute('aria-label', on ? 'Stop listening' : w.mic);
     },
     onError: (code) => toast(code === 'not-allowed' || code === 'service-not-allowed' ? w.micBlocked : code === 'no-speech' ? w.noSpeech : w.noSpeech),
   });

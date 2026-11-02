@@ -6,6 +6,7 @@
 
 export const UI_TEXT = {
   zh: {
+    'Stop': '停止', 'Stop listening': '停止听写',
     'You\'re asked to pay': '你被要求付款',
     'Not the company': '不是公司',
     'From your contract': '来自你的合同',
@@ -142,6 +143,7 @@ export const UI_TEXT = {
     'Working out what this contract is': '正在判断这是什么合同',
   },
   ms: {
+    'Stop': 'Henti', 'Stop listening': 'Henti mendengar',
     'You\'re asked to pay': 'Anda diminta membayar',
     'Not the company': 'Bukan syarikat',
     'From your contract': 'Daripada kontrak anda',
@@ -273,6 +275,7 @@ export const UI_TEXT = {
     'Working out what this contract is': 'Menentukan jenis kontrak ini',
   },
   ta: {
+    'Stop': 'நிறுத்து', 'Stop listening': 'கேட்பதை நிறுத்து',
     'You\'re asked to pay': 'நீங்கள் செலுத்தக் கேட்கப்படுகிறீர்கள்',
     'Not the company': 'நிறுவனம் அல்ல',
     'From your contract': 'உங்கள் ஒப்பந்தத்திலிருந்து',
