@@ -17,12 +17,30 @@ import { askSystem, clausesForPrompt, NOT_SURE_BY_LANG, LANGUAGE_NAMES, VERIFY_S
 import { inScript } from '../lib/scripts.mjs';
 import { hidePersonalNumbers } from '../../public/js/privacy.js';
 import { clauseLookup, withReferencedParts, TYPE_LABELS } from '../lib/contract-task.mjs';
-import { cleanText } from '../lib/wording.mjs';
+import { cleanText, cleanAdvice } from '../lib/wording.mjs';
 import { checkPoint, norm } from '../lib/verify.mjs';
 
 const MAX_QUESTION = 500;
 const HISTORY_TURNS = 3; // earlier questions sent with a new one, so follow-ups make sense
 const MAX_SAVED = 60;
+
+// "Should I sign?" and the like, in each language. The choice is the user's (PRD FR8), so these get
+// a fixed reply pointing to "You decide", never an answer from the AI.
+const ASKS_WHETHER_TO_SIGN = [
+  // "When do I sign…?" or "How can I accept…?" ask how, not whether, so they get a normal answer.
+  /(?<!\b(?:when|where|how|what|why)\s)\b(should|shall|must|can|could|would|do)\s+(i|we)\s+(sign|accept|take (it|this|the (job|offer))|go ahead|reject|decline|turn (it|this) down|walk away)\b/i,
+  /\b(is it|is this)\s+(ok|okay|safe|fine|good|wise|a good idea)\s+to\s+(sign|accept)\b/i,
+  /\bwould you (sign|accept)\b|\bworth signing\b|\bsign (it )?or not\b|\brecommend\b.*\b(sign|accept)/i,
+  /(要不要|该不该|应不应该|应该|可不可以|可以|能不能|好不好).{0,6}(签|接受)|签不签|值得签|签吗/,
+  /\b(patut|perlu|boleh|harus|wajar)(kah)?\s+(saya|kami|aku)\s+(tandatangan|menandatangani|terima|menerima)|\btandatangan(i)?\s+atau\s+tidak/i,
+  /கையெழுத்து\s*(போடலாமா|போட வேண்டுமா|இடலாமா)|கையெழுத்திடலாமா|கையெழுத்திட வேண்டுமா|ஏற்கலாமா|ஏற்க வேண்டுமா/,
+];
+const DECIDE_REPLY_BY_LANG = {
+  en: 'Whether to sign is your choice. ClauseWise SG points out what to check, but it cannot tell you to sign or not. Open "You decide" to see the points you marked, a draft message you can send, and your options. For a big decision, get a qualified professional to review the contract.',
+  zh: '签不签由你决定。ClauseWise SG 只会指出需要检查的地方，不会告诉你签还是不签。打开“由你决定”，查看你标记的问题、可以发送的草稿信息和你的选择。如果是重大决定，请找合格的专业人士审阅合同。',
+  ms: 'Sama ada mahu menandatangani atau tidak ialah pilihan anda. ClauseWise SG menunjukkan perkara yang perlu diperiksa, tetapi tidak boleh memberitahu anda sama ada untuk menandatangani. Buka "Anda yang tentukan" untuk melihat perkara yang anda tandakan, draf mesej yang boleh anda hantar, dan pilihan anda. Untuk keputusan besar, minta profesional yang layak menyemak kontrak ini.',
+  ta: 'கையெழுத்திடுவதா இல்லையா என்பது உங்கள் முடிவு. ClauseWise SG சரிபார்க்க வேண்டியவற்றைக் காட்டுகிறது, ஆனால் கையெழுத்திடச் சொல்லவோ வேண்டாம் என்று சொல்லவோ முடியாது. நீங்கள் குறித்த விஷயங்கள், அனுப்பக்கூடிய வரைவுச் செய்தி மற்றும் உங்கள் தேர்வுகளைப் பார்க்க "நீங்களே முடிவு செய்யுங்கள்" என்பதைத் திறக்கவும். பெரிய முடிவுக்கு, தகுதியான நிபுணரிடம் ஒப்பந்தத்தைச் சரிபார்க்கச் சொல்லுங்கள்.',
+};
 // Everything must finish inside the function time limit (60s live, 30s in netlify dev).
 const BUDGET_MS = FUNCTION_LIMIT_MS - 5000;
 
@@ -54,6 +72,9 @@ export default async (req) => {
       : { role: 'assistant', content: JSON.stringify({ found: !m.not_sure, answer: m.text, clauses: m.clause_numbers || [], quotes: m.quote ? [m.quote] : [] }) }));
 
     const lang = NOT_SURE_BY_LANG[row.language] ? row.language : 'en';
+    if (ASKS_WHETHER_TO_SIGN.some((re) => re.test(q))) {
+      return await saveTurn(query, clauses, history, q, lang, { text: DECIDE_REPLY_BY_LANG[lang], not_sure: false, decide: true, clause_numbers: [], quote: '' });
+    }
     const system = askSystem(TYPE_LABELS[row.contract_type], clausesForPrompt(clauses), warnings, lang);
     // Repeated here because the model otherwise follows the language of earlier replies.
     const inLanguage = lang === 'en' ? '' : `\n\n(Write the answer in ${LANGUAGE_NAMES[lang]}.)`;
@@ -97,16 +118,20 @@ export default async (req) => {
     }
     step('final check done');
 
-    const now = new Date().toISOString();
-    const user = { role: 'user', text: q, created_at: now };
     const { rejected, evidence, ...shown } = built;
-    const reply = { role: 'assistant', ...shown, lang, created_at: now };
-    await updateContract(query, { clauses, chat: [...history, user, reply].slice(-MAX_SAVED) });
-    return Response.json({ user, reply });
+    return await saveTurn(query, clauses, history, q, lang, shown);
   } catch (err) {
     return errorResponse(err);
   }
 };
+
+async function saveTurn(query, clauses, history, q, lang, shown) {
+  const now = new Date().toISOString();
+  const user = { role: 'user', text: q, created_at: now };
+  const reply = { role: 'assistant', ...shown, lang, created_at: now };
+  await updateContract(query, { clauses, chat: [...history, user, reply].slice(-MAX_SAVED) });
+  return Response.json({ user, reply });
+}
 
 const notSure = (lang, reason = '') => ({
   text: reason ? `${NOT_SURE_BY_LANG[lang]} ${reason}` : NOT_SURE_BY_LANG[lang], not_sure: true, clause_numbers: [], quote: '',
@@ -166,7 +191,8 @@ function buildReply(ai, clauses, lang) {
   if (!ai || typeof ai !== 'object') return notSure(lang);
   const lookup = clauseLookup(clauses);
   // Keep only the answer itself, never field names or JSON the model wrote into it.
-  const answer = cleanText(String(ai.answer ?? '').replace(/\s*\b(clauses|quotes?|found)\s*:\s*[[{"“].*$/is, ''), 700);
+  // Also drops any sentence that tells them to sign or not (cleanAdvice): that choice is theirs.
+  const answer = cleanAdvice(String(ai.answer ?? '').replace(/\s*\b(clauses|quotes?|found)\s*:\s*[[{"“].*$/is, ''), 700);
 
   if (ai.found === false || !answer) {
     // Add the AI's short reason only if it is in the chosen language.

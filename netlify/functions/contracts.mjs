@@ -2,7 +2,8 @@
 //   GET              -> list this device's contracts
 //   GET    ?id=...   -> one contract with its text
 //   POST   (json)    -> save { raw_text, file_name, source_type, choices, situation }
-//   PATCH  ?id=...   -> change { language, explain_mode, hide_personal, situation }
+//   PATCH  ?id=...   -> change { language, explain_mode, hide_personal, situation, decisions }
+//                       decisions: { mark: { index, value: 'ask'|'ok'|'wrong'|null }, message, choice }
 //   DELETE ?id=...   -> delete the contract and every saved result
 //
 // The original PDF or photo is never uploaded or stored: only the extracted text, which the
@@ -27,7 +28,12 @@ const LANGUAGES = ['en', 'zh', 'ms', 'ta'];
 const SOURCE_TYPES = { pdf: 'application/pdf', photo: 'image/jpeg' };
 
 const LIST_FIELDS = 'id,title,contract_type,explain_mode,language,source_type,file_name,status,created_at';
-const DETAIL_FIELDS = `${LIST_FIELDS},mime_type,raw_text,clauses,summary,risks,comics,chat,translations,personal,situation,tailored`;
+const DETAIL_FIELDS = `${LIST_FIELDS},mime_type,raw_text,clauses,summary,risks,comics,chat,translations,personal,situation,tailored,decisions`;
+
+// "You decide" (PRD FR8)
+const MARKS = ['ask', 'ok', 'wrong'];
+const CHOICES = ['sign', 'negotiate', 'expert', 'walk_away'];
+const MAX_MESSAGE_CHARS = 3000;
 
 export default async (req) => {
   try {
@@ -110,7 +116,7 @@ async function change(deviceId, id, req) {
     if (!EXPLAIN_MODES.includes(body.explain_mode)) throw new HttpError(400, 'Please choose a valid explain mode.');
     fields.explain_mode = body.explain_mode;
   }
-  const [row] = await selectContracts(`select=id,personal,situation,translations&id=eq.${id}&device_id=eq.${deviceId}`);
+  const [row] = await selectContracts(`select=id,personal,situation,translations,risks,decisions&id=eq.${id}&device_id=eq.${deviceId}`);
   if (!row) throw new HttpError(404, 'Contract not found. It may have been deleted.');
 
   // "Hide these too" on the Personal details screen.
@@ -132,9 +138,56 @@ async function change(deviceId, id, req) {
       fields.translations = translations;
     }
   }
+  // "You decide": one change at a time, merged into what is saved. The app sends them one after
+  // another, so two quick taps can't overwrite each other.
+  if (body.decisions !== undefined) fields.decisions = changeDecisions(row, body.decisions);
+
   if (!Object.keys(fields).length && situation === undefined) throw new HttpError(400, 'Nothing to change.');
   if (Object.keys(fields).length) await updateContract(`id=eq.${id}&device_id=eq.${deviceId}`, fields);
-  return Response.json(situation === undefined ? { ok: true } : { ok: true, situation });
+  return Response.json({
+    ok: true,
+    ...(situation === undefined ? {} : { situation }),
+    ...(fields.decisions ? { decisions: fields.decisions } : {}),
+  });
+}
+
+// `decisions` = { risks: { "<warning index>": "ask"|"ok"|"wrong" }, message, message_plain: { lang, text },
+// plain_outdated, draft_for: [warning indexes the draft was made for], choice, updated_at }
+function changeDecisions(row, change) {
+  if (!change || typeof change !== 'object') throw new HttpError(400, 'Nothing to change.');
+  const saved = row.decisions || {};
+  const next = {
+    risks: { ...(saved.risks || {}) },
+    message: saved.message || '',
+    message_plain: saved.message_plain || null,
+    plain_outdated: Boolean(saved.plain_outdated),
+    draft_for: saved.draft_for || [],
+    choice: saved.choice || null,
+  };
+  if (change.mark !== undefined) {
+    const index = Number(change.mark?.index);
+    if (!Number.isInteger(index) || index < 0 || index >= (row.risks?.items?.length || 0)) {
+      throw new HttpError(400, 'That warning could not be found.');
+    }
+    const value = change.mark?.value ?? null;
+    if (value !== null && !MARKS.includes(value)) throw new HttpError(400, 'Please choose a valid mark.');
+    if (value === null) delete next.risks[index];
+    else next.risks[index] = value;
+  }
+  if (change.message !== undefined) {
+    // The user's own edits: NRIC/FIN and bank numbers are still hidden before saving.
+    const message = hidePersonalNumbers(String(change.message ?? '').slice(0, MAX_MESSAGE_CHARS)).text;
+    if (message !== next.message) {
+      next.message = message;
+      next.plain_outdated = Boolean(next.message_plain);
+    }
+  }
+  if (change.choice !== undefined) {
+    if (change.choice !== null && !CHOICES.includes(change.choice)) throw new HttpError(400, 'Please choose a valid option.');
+    next.choice = change.choice;
+  }
+  next.updated_at = new Date().toISOString();
+  return next;
 }
 
 async function remove(deviceId, id) {

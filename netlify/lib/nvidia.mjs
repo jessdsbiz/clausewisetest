@@ -29,6 +29,8 @@ export const NVIDIA_MODELS = {
   verify: process.env.NVIDIA_VERIFY_MODEL || STRONG_MODEL,
   // "Your situation" reads the user's own words and weighs them against the contract.
   tailor: process.env.NVIDIA_TAILOR_MODEL || STRONG_MODEL,
+  // "You decide": the draft message to the other party and its plain-words version.
+  decide: process.env.NVIDIA_DECIDE_MODEL || STRONG_MODEL,
   // Lightning left Chinese untranslated and wrote Malay when asked for Tamil; Ultra translates properly.
   translate: process.env.NVIDIA_TRANSLATE_MODEL || STRONG_MODEL,
 };

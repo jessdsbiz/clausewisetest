@@ -86,6 +86,7 @@ const icons = {
   chevUp: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>',
   chevDown: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
   chevSmall: '<svg class="chev-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   sparkle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z" fill="currentColor" stroke="none"/></svg>',
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>',
   stopSquare: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>',
@@ -375,6 +376,10 @@ screen.addEventListener('change', (e) => {
 // Typing doesn't re-render, so the box keeps its cursor.
 screen.addEventListener('input', (e) => {
   if (e.target.id === 'situation-input') scan.situation = e.target.value;
+  if (e.target.id === 'draft-text') {
+    const c = contractCache.get(parseRoute().params[0]);
+    if (c) draftEdited(c, e.target.value);
+  }
 });
 
 // ---------- Contracts list ----------
@@ -686,6 +691,8 @@ function renderSummary(c) {
 
     <div id="plan-slot">${planSection(c)}</div>
 
+    ${c.risks ? decideCard(c) : ''}
+
     ${fullText(c)}
 
     <p class="tab-foot">Tap any point to see the original clause. Made by AI from your contract.</p>
@@ -743,27 +750,69 @@ function tailoredTr(c) {
   return tr;
 }
 
-const whyText = (c, r, tr) => tr?.risks?.find((x) => x.index === r.index)?.why_for_you || r.why;
+// The fixed wording around the parts made for the user, in each language the app explains in.
+// Written here rather than by the AI, so it shows straight away. (Tamil still needs a native
+// speaker's check, like the other Tamil text.)
+const FOR_YOU_WORDS = {
+  en: {
+    heading: 'Made for you',
+    ready: 'What matters most for you comes first, and your plan before you sign is ready.',
+    loading: 'Fitting this to your situation…',
+    failed: 'We could not fit this to your situation yet.',
+    button: 'See your plan',
+    why: 'Why this matters for you:',
+  },
+  zh: {
+    heading: '为你定制',
+    ready: '对你最重要的内容排在前面，你的签约前计划也已准备好。',
+    loading: '正在根据你的情况调整…',
+    failed: '暂时无法根据你的情况调整。',
+    button: '查看你的计划',
+    why: '为什么这对你很重要：',
+  },
+  ms: {
+    heading: 'Dibuat untuk anda',
+    ready: 'Perkara yang paling penting untuk anda ditunjukkan dahulu, dan pelan anda sebelum menandatangani sudah sedia.',
+    loading: 'Sedang disesuaikan dengan keadaan anda…',
+    failed: 'Kami belum dapat menyesuaikannya dengan keadaan anda.',
+    button: 'Lihat pelan anda',
+    why: 'Mengapa ini penting untuk anda:',
+  },
+  ta: {
+    heading: 'உங்களுக்காக உருவாக்கப்பட்டது',
+    ready: 'உங்களுக்கு மிக முக்கியமானவை முதலில் காட்டப்படுகின்றன, கையெழுத்திடும் முன் உங்கள் திட்டம் தயாராக உள்ளது.',
+    loading: 'உங்கள் நிலைமைக்கு ஏற்ப மாற்றப்படுகிறது…',
+    failed: 'உங்கள் நிலைமைக்கு ஏற்ப இன்னும் மாற்ற முடியவில்லை.',
+    button: 'உங்கள் திட்டத்தைப் பார்க்கவும்',
+    why: 'இது உங்களுக்கு ஏன் முக்கியம்:',
+  },
+};
+const forYouWords = (c) => FOR_YOU_WORDS[c.language] || FOR_YOU_WORDS.en;
+
+// A "Why this matters for you" line, with its label in the same language as the line: the
+// translated line under a translated label, or the English line (until it's translated) in English.
+const translatedWhy = (r, tr) => tr?.risks?.find((x) => x.index === r.index)?.why_for_you;
 
 function whyLine(c, r, tr) {
-  const text = r.why && whyText(c, r, tr);
-  return text ? `<span class="risk-why"><strong>Why this matters for you:</strong> ${escapeHtml(text)}</span>` : '';
+  if (!r.why) return '';
+  const translatedLine = translatedWhy(r, tr);
+  const label = translatedLine ? forYouWords(c).why : FOR_YOU_WORDS.en.why;
+  return `<span class="risk-why"${translatedLine ? ` lang="${c.language}"` : ''}><strong>${escapeHtml(label)}</strong> ${escapeHtml(translatedLine || r.why)}</span>`;
 }
 
 // "Made for you" banner at the top of the Overview when the user told us about themselves.
 function forYouBanner(c) {
   if (!c.situation) return '';
-  const text = c.tailored
-    ? 'What matters most for you comes first, and your plan before you sign is ready.'
-    : c.tailoredError ? 'We could not fit this to your situation yet.' : 'Fitting this to your situation…';
+  const w = forYouWords(c);
+  const text = c.tailored ? w.ready : c.tailoredError ? w.failed : w.loading;
   return `
-    <div class="for-you">
+    <div class="for-you" lang="${FOR_YOU_WORDS[c.language] ? c.language : 'en'}">
       <span class="for-you-icon">${icons.sparkle}</span>
-      <span class="for-you-body">
-        <span class="for-you-eyebrow">Made for you</span>
-        <span class="for-you-text">${escapeHtml(text)}</span>
-      </span>
-      <button class="for-you-btn" type="button" data-jump-plan>See your plan</button>
+      <div class="for-you-body">
+        <h2 class="for-you-title">${escapeHtml(w.heading)}</h2>
+        <p class="for-you-text">${escapeHtml(text)}</p>
+      </div>
+      <button class="for-you-btn" type="button" data-jump-plan>${escapeHtml(w.button)}</button>
     </div>`;
 }
 
@@ -856,6 +905,452 @@ async function saveSituation(c, text, button) {
     button.disabled = false;
     if (status) status.innerHTML = notice('error', err.message);
   }
+}
+
+// ---------- You decide (PRD FR8, styled after mockup 6) ----------
+
+// Every label on "You decide" and the marks on the Risks tab, in each language the app explains in.
+// Fixed wording, not AI, so the options and next steps never depend on the AI. (Tamil still needs a
+// native speaker's check, like the other Tamil text.)
+const DECIDE_WORDS = {
+  en: {
+    marks: { ask: 'I\'ll ask about this', ok: 'I\'m OK with this', wrong: 'This looks wrong' },
+    disagreed: 'You disagreed',
+    title: 'You decide',
+    cardText: 'Your marked points, a draft message and your options. The choice is yours.',
+    headerSub: 'We help you get ready. You make the call.',
+    toAsk: (n) => `${n} to ask about`,
+    askHeading: 'What you\'ll ask about',
+    noMarks: 'Mark a warning "I\'ll ask about this" on the Risks tab to get a draft message.',
+    goRisks: 'Go to Risks',
+    messageHeading: (to) => `Your message to ${to}`,
+    to: { job_offer: 'the employer', rental: 'the landlord', phone_subscription: 'the telco', loan: 'the lender', business: 'the other company', other: 'the other party' },
+    draftLabel: 'AI draft – check and edit before sending',
+    drafting: 'Writing your draft message… about 5 to 15 seconds',
+    makeDraft: 'Make the draft',
+    newDraft: 'Make a new draft',
+    replaceDraft: 'Make a new draft? It replaces this one, including your edits.',
+    copy: 'Copy',
+    copied: 'Copied',
+    copyFailed: 'Could not copy. Select the text and copy it yourself.',
+    saved: 'Saved',
+    marksChanged: 'You changed your marks since this draft. Make a new draft to include them.',
+    noSend: 'ClauseWise SG never sends anything for you. Copy it into your own email or chat.',
+    plainLabel: 'What this message says (not for sending)',
+    plainOutdated: 'You changed the message. Tap Update to see what it says now.',
+    update: 'Update',
+    explaining: 'Explaining your message…',
+    optionsHeading: 'Your options',
+    pickNote: 'Tap one to note your choice. You can change it any time.',
+    options: { sign: 'Sign', negotiate: 'Negotiate first', expert: 'Get expert help', walk_away: 'Walk away' },
+    next: {
+      sign: 'Keep a signed copy for yourself, and screenshots of your messages with them.',
+      negotiate: 'Send your message above, and get their answers in writing before you sign.',
+      expert: 'Ask a professional to look at your contract before you sign:',
+      walk_away: 'You don\'t have to sign. If you were asked to pay anything, call ScamShield 1799 to check.',
+    },
+    yourCall: 'ClauseWise SG points out what to check. You make the call. Not legal advice.',
+    bigDecision: 'For a big decision, get a qualified professional to review the contract.',
+    openDecide: 'Open You decide',
+  },
+  zh: {
+    marks: { ask: '我会问这个', ok: '我可以接受', wrong: '这看起来不对' },
+    disagreed: '你不同意',
+    title: '由你决定',
+    cardText: '你标记的问题、草稿信息和你的选择。决定权在你。',
+    headerSub: '我们帮你做好准备，由你做决定。',
+    toAsk: (n) => `${n} 个问题要问`,
+    askHeading: '你要问的问题',
+    noMarks: '在“风险”页把警告标记为“我会问这个”，就能得到草稿信息。',
+    goRisks: '去风险页',
+    messageHeading: (to) => `给${to}的信息`,
+    to: { job_offer: '雇主', rental: '房东', phone_subscription: '电信公司', loan: '贷款方', business: '对方公司', other: '对方' },
+    draftLabel: 'AI 草稿 – 发送前请检查和修改',
+    drafting: '正在写你的草稿信息… 大约 5 到 15 秒',
+    makeDraft: '生成草稿',
+    newDraft: '重新生成草稿',
+    replaceDraft: '重新生成草稿？这会替换现在的草稿，包括你的修改。',
+    copy: '复制',
+    copied: '已复制',
+    copyFailed: '无法复制。请自己选中文字再复制。',
+    saved: '已保存',
+    marksChanged: '你在这份草稿之后改了标记。重新生成草稿就能包括它们。',
+    noSend: 'ClauseWise SG 不会替你发送任何东西。请把它复制到你自己的电邮或聊天里。',
+    plainLabel: '这条信息在说什么（不用发送）',
+    plainOutdated: '你改了信息。点“更新”看看它现在在说什么。',
+    update: '更新',
+    explaining: '正在解释你的信息…',
+    optionsHeading: '你的选择',
+    pickNote: '点一个记下你的选择，随时可以更改。',
+    options: { sign: '签约', negotiate: '先谈条件', expert: '找专家帮忙', walk_away: '不签了' },
+    next: {
+      sign: '自己留一份签好的副本，并保存你和他们的聊天截图。',
+      negotiate: '发送上面的信息，在签约前拿到他们的书面答复。',
+      expert: '签约前请专业人士看看你的合同：',
+      walk_away: '你不一定要签。如果对方要你付钱，请打 ScamShield 1799 核实。',
+    },
+    yourCall: 'ClauseWise SG 指出需要检查的地方，由你做决定。这不是法律意见。',
+    bigDecision: '如果是重大决定，请找合格的专业人士审阅合同。',
+    openDecide: '打开“由你决定”',
+  },
+  ms: {
+    marks: { ask: 'Saya akan tanya', ok: 'Saya OK dengan ini', wrong: 'Ini nampak salah' },
+    disagreed: 'Anda tidak bersetuju',
+    title: 'Anda yang tentukan',
+    cardText: 'Perkara yang anda tandakan, draf mesej dan pilihan anda. Keputusan di tangan anda.',
+    headerSub: 'Kami bantu anda bersedia. Anda yang buat keputusan.',
+    toAsk: (n) => `${n} perkara untuk ditanya`,
+    askHeading: 'Perkara yang anda akan tanya',
+    noMarks: 'Tandakan amaran "Saya akan tanya" di tab Risiko untuk mendapat draf mesej.',
+    goRisks: 'Pergi ke Risiko',
+    messageHeading: (to) => `Mesej anda kepada ${to}`,
+    to: { job_offer: 'majikan', rental: 'tuan rumah', phone_subscription: 'syarikat telco', loan: 'pemberi pinjaman', business: 'syarikat lain', other: 'pihak lain' },
+    draftLabel: 'Draf AI – semak dan ubah sebelum dihantar',
+    drafting: 'Sedang menulis draf mesej anda… kira-kira 5 hingga 15 saat',
+    makeDraft: 'Buat draf',
+    newDraft: 'Buat draf baharu',
+    replaceDraft: 'Buat draf baharu? Ia menggantikan draf ini, termasuk perubahan anda.',
+    copy: 'Salin',
+    copied: 'Disalin',
+    copyFailed: 'Tidak dapat menyalin. Pilih teks dan salin sendiri.',
+    saved: 'Disimpan',
+    marksChanged: 'Anda menukar tanda selepas draf ini dibuat. Buat draf baharu untuk memasukkannya.',
+    noSend: 'ClauseWise SG tidak akan menghantar apa-apa untuk anda. Salin ke e-mel atau sembang anda sendiri.',
+    plainLabel: 'Apa yang dikatakan mesej ini (bukan untuk dihantar)',
+    plainOutdated: 'Anda telah mengubah mesej. Tekan Kemas kini untuk melihat maksudnya sekarang.',
+    update: 'Kemas kini',
+    explaining: 'Sedang menerangkan mesej anda…',
+    optionsHeading: 'Pilihan anda',
+    pickNote: 'Tekan satu untuk mencatat pilihan anda. Anda boleh menukarnya bila-bila masa.',
+    options: { sign: 'Tandatangan', negotiate: 'Berunding dahulu', expert: 'Dapatkan bantuan pakar', walk_away: 'Tolak' },
+    next: {
+      sign: 'Simpan satu salinan yang telah ditandatangani, dan tangkapan skrin mesej anda dengan mereka.',
+      negotiate: 'Hantar mesej anda di atas, dan dapatkan jawapan mereka secara bertulis sebelum menandatangani.',
+      expert: 'Minta profesional menyemak kontrak anda sebelum menandatangani:',
+      walk_away: 'Anda tidak perlu menandatangani. Jika anda diminta membayar apa-apa, hubungi ScamShield 1799 untuk menyemak.',
+    },
+    yourCall: 'ClauseWise SG menunjukkan perkara yang perlu diperiksa. Anda yang buat keputusan. Bukan nasihat undang-undang.',
+    bigDecision: 'Untuk keputusan besar, minta profesional yang layak menyemak kontrak ini.',
+    openDecide: 'Buka Anda yang tentukan',
+  },
+  ta: {
+    marks: { ask: 'இதைப் பற்றிக் கேட்பேன்', ok: 'இது எனக்குச் சரி', wrong: 'இது தவறாகத் தெரிகிறது' },
+    disagreed: 'நீங்கள் உடன்படவில்லை',
+    title: 'நீங்களே முடிவு செய்யுங்கள்',
+    cardText: 'நீங்கள் குறித்தவை, வரைவுச் செய்தி மற்றும் உங்கள் தேர்வுகள். முடிவு உங்களுடையது.',
+    headerSub: 'நீங்கள் தயாராக உதவுகிறோம். முடிவு உங்களுடையது.',
+    toAsk: (n) => `கேட்க ${n} விஷயங்கள்`,
+    askHeading: 'நீங்கள் கேட்கப் போவது',
+    noMarks: 'வரைவுச் செய்தியைப் பெற, அபாயங்கள் பக்கத்தில் ஒரு எச்சரிக்கையை "இதைப் பற்றிக் கேட்பேன்" எனக் குறிக்கவும்.',
+    goRisks: 'அபாயங்களுக்குச் செல்',
+    messageHeading: (to) => `${to} க்கு உங்கள் செய்தி`,
+    to: { job_offer: 'முதலாளி', rental: 'வீட்டு உரிமையாளர்', phone_subscription: 'தொலைத்தொடர்பு நிறுவனம்', loan: 'கடன் வழங்குநர்', business: 'மற்ற நிறுவனம்', other: 'மற்ற தரப்பு' },
+    draftLabel: 'AI வரைவு – அனுப்பும் முன் சரிபார்த்துத் திருத்தவும்',
+    drafting: 'உங்கள் வரைவுச் செய்தி எழுதப்படுகிறது… சுமார் 5 முதல் 15 வினாடிகள்',
+    makeDraft: 'வரைவை உருவாக்கு',
+    newDraft: 'புதிய வரைவை உருவாக்கு',
+    replaceDraft: 'புதிய வரைவை உருவாக்கவா? இது உங்கள் திருத்தங்கள் உட்பட இந்த வரைவை மாற்றிவிடும்.',
+    copy: 'நகலெடு',
+    copied: 'நகலெடுக்கப்பட்டது',
+    copyFailed: 'நகலெடுக்க முடியவில்லை. உரையைத் தேர்ந்தெடுத்து நீங்களே நகலெடுக்கவும்.',
+    saved: 'சேமிக்கப்பட்டது',
+    marksChanged: 'இந்த வரைவுக்குப் பிறகு உங்கள் குறிப்புகளை மாற்றியுள்ளீர்கள். அவற்றைச் சேர்க்க புதிய வரைவை உருவாக்கவும்.',
+    noSend: 'ClauseWise SG உங்களுக்காக எதையும் அனுப்பாது. உங்கள் சொந்த மின்னஞ்சல் அல்லது அரட்டையில் நகலெடுக்கவும்.',
+    plainLabel: 'இந்தச் செய்தி என்ன சொல்கிறது (அனுப்புவதற்கு அல்ல)',
+    plainOutdated: 'நீங்கள் செய்தியை மாற்றியுள்ளீர்கள். இப்போது அது என்ன சொல்கிறது என்று பார்க்க புதுப்பி என்பதைத் தட்டவும்.',
+    update: 'புதுப்பி',
+    explaining: 'உங்கள் செய்தி விளக்கப்படுகிறது…',
+    optionsHeading: 'உங்கள் தேர்வுகள்',
+    pickNote: 'உங்கள் தேர்வைக் குறிக்க ஒன்றைத் தட்டவும். எப்போது வேண்டுமானாலும் மாற்றலாம்.',
+    options: { sign: 'கையெழுத்திடு', negotiate: 'முதலில் பேச்சுவார்த்தை', expert: 'நிபுணர் உதவி பெறு', walk_away: 'வேண்டாம்' },
+    next: {
+      sign: 'கையெழுத்திட்ட ஒரு நகலை உங்களிடம் வைத்திருங்கள், அவர்களுடனான உங்கள் செய்திகளின் திரைப்பிடிப்புகளையும் வைத்திருங்கள்.',
+      negotiate: 'மேலே உள்ள செய்தியை அனுப்புங்கள், கையெழுத்திடும் முன் அவர்களின் பதில்களை எழுத்து மூலம் பெறுங்கள்.',
+      expert: 'கையெழுத்திடும் முன் ஒரு நிபுணரிடம் உங்கள் ஒப்பந்தத்தைப் பார்க்கச் சொல்லுங்கள்:',
+      walk_away: 'நீங்கள் கையெழுத்திட வேண்டியதில்லை. பணம் செலுத்தச் சொன்னால், சரிபார்க்க ScamShield 1799 ஐ அழைக்கவும்.',
+    },
+    yourCall: 'ClauseWise SG சரிபார்க்க வேண்டியவற்றைக் காட்டுகிறது. முடிவு உங்களுடையது. இது சட்ட ஆலோசனை அல்ல.',
+    bigDecision: 'பெரிய முடிவுக்கு, தகுதியான நிபுணரிடம் ஒப்பந்தத்தைச் சரிபார்க்கச் சொல்லுங்கள்.',
+    openDecide: '"நீங்களே முடிவு செய்யுங்கள்" திற',
+  },
+};
+const decideWords = (c) => DECIDE_WORDS[c.language] || DECIDE_WORDS.en;
+const langAttr = (c) => (DECIDE_WORDS[c.language] ? c.language : 'en');
+
+const MARK_ORDER = ['ask', 'ok', 'wrong'];
+const CHOICE_ORDER = ['sign', 'negotiate', 'expert', 'walk_away'];
+// The help links each option shows, from the app's fixed list (never from the AI).
+const CHOICE_HELP = { sign: [], negotiate: [], expert: ['mom', 'tadm', 'probono', 'case'], walk_away: ['scamshield'] };
+
+const markOf = (c, index) => c.decisions?.risks?.[index] || null;
+
+// The three buttons under a warning on the Risks tab. Nothing is selected at first; tapping the
+// selected one again clears it.
+function markButtons(c, r) {
+  const w = decideWords(c);
+  return `
+    <div class="mark-row" role="group" aria-label="${escapeHtml(w.title)}" lang="${langAttr(c)}">
+      ${MARK_ORDER.map((m) => `
+        <button class="mark-btn mark-${m}" type="button" data-mark="${m}" data-index="${r.index}" aria-pressed="${markOf(c, r.index) === m}">${escapeHtml(w.marks[m])}</button>`).join('')}
+    </div>`;
+}
+
+// The way into "You decide", at the end of the Summary and Risks tabs.
+function decideCard(c) {
+  const w = decideWords(c);
+  const asks = Object.values(c.decisions?.risks || {}).filter((m) => m === 'ask').length;
+  return `
+    <a class="decide-card" href="#/contract/${c.id}/decide" lang="${langAttr(c)}">
+      <span class="decide-card-icon">${icons.check}</span>
+      <span class="decide-card-body">
+        <span class="decide-card-title">${escapeHtml(w.title)}</span>
+        <span class="decide-card-text">${escapeHtml(asks ? `${w.toAsk(asks)} · ${w.cardText}` : w.cardText)}</span>
+      </span>
+      ${icons.chevSmall}
+    </a>`;
+}
+
+// The draft and its plain-words version, kept apart so typing in the draft doesn't redraw it.
+function draftSection(c, asks) {
+  const w = decideWords(c);
+  const d = c.decisions || {};
+  const head = `<h2 class="h2 decide-h2">${escapeHtml(w.messageHeading(w.to[c.contract_type] || w.to.other))}</h2>`;
+  if (!asks.length) return '';
+  if (c.draftBusy) {
+    return `${head}<div class="card loading"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(w.drafting)}</span></div>`;
+  }
+  if (c.draftError) {
+    return `${head}${notice('error', c.draftError)}<button class="btn btn-primary btn-block" type="button" data-make-draft>${escapeHtml(w.makeDraft)}</button>`;
+  }
+  if (!d.message) {
+    return `${head}<button class="btn btn-primary btn-block" type="button" data-make-draft>${icons.sparkle} ${escapeHtml(w.makeDraft)}</button>`;
+  }
+  const askIdx = asks.map((r) => r.index).sort((a, b) => a - b).join(',');
+  const marksChanged = (d.draft_for || []).slice().sort((a, b) => a - b).join(',') !== askIdx;
+  return `${head}
+    ${marksChanged ? notice('info', w.marksChanged) : ''}
+    <div class="card draft-card">
+      <p class="draft-label">${icons.sparkle} ${escapeHtml(w.draftLabel)}</p>
+      <textarea class="draft-text" id="draft-text" lang="en" rows="10" aria-label="${escapeHtml(w.draftLabel)}">${escapeHtml(d.message)}</textarea>
+      <div class="draft-status" id="draft-status" aria-live="polite"></div>
+      <div class="draft-actions">
+        <button class="btn btn-primary" type="button" data-copy-draft>${icons.doc} ${escapeHtml(w.copy)}</button>
+        <button class="btn btn-secondary" type="button" data-new-draft>${icons.sparkle} ${escapeHtml(w.newDraft)}</button>
+      </div>
+      <p class="draft-note">${escapeHtml(w.noSend)}</p>
+    </div>
+    <div id="plain-slot">${plainSection(c)}</div>`;
+}
+
+// "What this message says (not for sending)", only for Chinese, Malay or Tamil.
+function plainSection(c) {
+  if (!c.language || c.language === 'en') return '';
+  const w = decideWords(c);
+  const d = c.decisions || {};
+  const plain = d.message_plain?.lang === c.language ? d.message_plain.text : '';
+  const outdated = !plain || d.plain_outdated;
+  let body;
+  if (c.plainBusy) body = `<p class="plain-text"><span class="spinner" aria-hidden="true"></span> ${escapeHtml(w.explaining)}</p>`;
+  else {
+    body = `${plain ? `<p class="plain-text">${escapeHtml(plain)}</p>` : ''}
+      ${c.plainError ? notice('error', c.plainError) : ''}
+      ${outdated ? `${plain ? `<p class="plain-outdated">${escapeHtml(w.plainOutdated)}</p>` : ''}
+        <button class="btn btn-secondary" type="button" data-update-plain>${escapeHtml(w.update)}</button>` : ''}`;
+  }
+  return `
+    <div class="card plain-card" lang="${c.language}">
+      <p class="plain-label">${escapeHtml(w.plainLabel)}</p>
+      ${body}
+    </div>`;
+}
+
+// Four options, same size and style, in a fixed order. None is picked or recommended; the chosen
+// one shows fixed next-step text and help links from the app's own list.
+function optionsSection(c) {
+  const w = decideWords(c);
+  const choice = c.decisions?.choice || null;
+  const helpLink = (key) => {
+    const h = HELP_LINKS[key];
+    const outside = h.href.startsWith('http') ? ' target="_blank" rel="noopener"' : '';
+    return `<a class="help-chip" href="${h.href}"${outside}>${h.href.startsWith('tel:') ? icons.phone : icons.building} ${escapeHtml(h.label)}</a>`;
+  };
+  return `
+    <h2 class="h2 decide-h2">${escapeHtml(w.optionsHeading)}</h2>
+    <p class="decide-note">${escapeHtml(w.pickNote)}</p>
+    <div class="choice-grid" role="group" aria-label="${escapeHtml(w.optionsHeading)}">
+      ${CHOICE_ORDER.map((k) => `
+        <button class="choice-btn" type="button" data-choice="${k}" aria-pressed="${choice === k}">${escapeHtml(w.options[k])}</button>`).join('')}
+    </div>
+    ${choice ? `
+      <div class="card choice-next" role="status">
+        <p><strong>${escapeHtml(w.options[choice])}:</strong> ${escapeHtml(w.next[choice])}</p>
+        ${CHOICE_HELP[choice].length ? `<div class="choice-help">${CHOICE_HELP[choice].map(helpLink).join('')}</div>` : ''}
+      </div>` : ''}`;
+}
+
+function renderDecide(c) {
+  const w = decideWords(c);
+  if (!c.risks) {
+    if (!c.risksError) loadAi(c, 'risks');
+    return c.risksError
+      ? `${notice('error', c.risksError)}${retryButton('risks')}`
+      : `<div class="card loading"><span class="spinner" aria-hidden="true"></span><span>Checking your contract for warning signs first…</span></div>`;
+  }
+  const tr = translated(c, 'risks');
+  const asks = riskList(c).filter((r) => markOf(c, r.index) === 'ask');
+  // First visit with points marked: make the draft straight away.
+  if (asks.length && !c.decisions?.message && !c.draftBusy && !c.draftError) makeDraft(c);
+  return `
+    <div lang="${langAttr(c)}">
+      <section class="decide-head">
+        <span class="decide-count" aria-hidden="true">${asks.length}</span>
+        <div>
+          <h1 class="decide-title">${escapeHtml(w.title)}</h1>
+          <p class="decide-sub">${escapeHtml(w.headerSub)}</p>
+          <span class="decide-pill">${escapeHtml(w.toAsk(asks.length))}</span>
+        </div>
+      </section>
+
+      <h2 class="h2 decide-h2">${escapeHtml(w.askHeading)}</h2>
+      ${asks.length ? `
+        <ul class="list-card ask-list">
+          ${asks.map((r) => `
+            <li class="ask-item">
+              <span class="ask-dot lvl-${r.level}" aria-hidden="true"></span>
+              <span class="ask-text">${escapeHtml(tr?.[r.index]?.title || r.title)}</span>
+              <a class="clause-chip lvl-${r.level}" href="#/contract/${c.id}/doc/${r.index}">${escapeHtml(shortRef(r.clause_numbers[0]))}</a>
+            </li>`).join('')}
+        </ul>` : `
+        <div class="card decide-empty">
+          <p>${escapeHtml(w.noMarks)}</p>
+          <a class="btn btn-secondary btn-block" href="#/contract/${c.id}/risks">${escapeHtml(w.goRisks)}</a>
+        </div>`}
+
+      <div id="draft-slot">${draftSection(c, asks)}</div>
+      <div id="options-slot">${optionsSection(c)}</div>
+
+      <p class="decide-foot"><strong>${escapeHtml(w.yourCall)}</strong><br>${escapeHtml(w.bigDecision)}</p>
+    </div>`;
+}
+
+// Saving marks, edits and the choice: one request at a time, in order, so quick taps can't
+// overwrite each other. The screen updates straight away; the server only adds what it works out
+// itself (whether the plain-words version is out of date).
+let decisionsQueue = Promise.resolve();
+function saveDecision(c, change) {
+  decisionsQueue = decisionsQueue
+    // keepalive: a choice made just before closing or reloading the page is still saved.
+    .then(() => api(`contracts?id=${encodeURIComponent(c.id)}`, { method: 'PATCH', json: { decisions: change }, what: 'saving your choice', keepalive: true }))
+    .then(({ decisions }) => {
+      if (decisions && c.decisions) c.decisions.plain_outdated = decisions.plain_outdated;
+      return decisions;
+    })
+    .catch((err) => {
+      toast(err.message);
+      return null;
+    });
+  return decisionsQueue;
+}
+
+function setMark(c, index, mark) {
+  c.decisions = c.decisions || {};
+  const risks = { ...(c.decisions.risks || {}) };
+  const value = risks[index] === mark ? null : mark; // tap the chosen one again to clear it
+  if (value) risks[index] = value;
+  else delete risks[index];
+  c.decisions.risks = risks;
+  saveDecision(c, { mark: { index, value } });
+}
+
+async function makeDraft(c) {
+  c.draftBusy = true;
+  delete c.draftError;
+  const redraw = () => {
+    const slot = document.getElementById('draft-slot');
+    const { name, params } = parseRoute();
+    if (slot && name === 'contract' && params[0] === c.id && params[1] === 'decide') {
+      slot.innerHTML = draftSection(c, riskList(c).filter((r) => markOf(c, r.index) === 'ask'));
+    }
+  };
+  setTimeout(redraw); // show "Writing…" (also when called while the screen is being drawn)
+  try {
+    await decisionsQueue; // marks first, so the draft covers them
+    const { decisions } = await api(`decide?id=${encodeURIComponent(c.id)}&action=draft`, { method: 'POST', what: 'writing your draft message' });
+    c.decisions = decisions;
+  } catch (err) {
+    c.draftError = err.message;
+  } finally {
+    c.draftBusy = false;
+    redraw();
+  }
+}
+
+async function updatePlain(c) {
+  c.plainBusy = true;
+  delete c.plainError;
+  const redraw = () => {
+    const slot = document.getElementById('plain-slot');
+    if (slot) slot.innerHTML = plainSection(c);
+  };
+  redraw();
+  try {
+    flushDraft();
+    await decisionsQueue; // the latest edits first
+    const { decisions } = await api(`decide?id=${encodeURIComponent(c.id)}&action=plain`, { method: 'POST', what: 'explaining your message' });
+    c.decisions = { ...c.decisions, message_plain: decisions.message_plain, plain_outdated: decisions.plain_outdated };
+  } catch (err) {
+    c.plainError = err.message;
+  } finally {
+    c.plainBusy = false;
+    redraw();
+  }
+}
+
+// Edits to the draft are saved a moment after typing stops, or straight away when the user leaves
+// the screen or the page.
+let draftTimer;
+let draftPending = null;
+function draftEdited(c, text) {
+  c.decisions = { ...c.decisions, message: text };
+  if (c.decisions.message_plain) c.decisions.plain_outdated = true;
+  clearTimeout(draftTimer);
+  draftPending = { c, text };
+  draftTimer = setTimeout(saveDraftNow, 800);
+}
+function flushDraft() {
+  if (!draftPending) return;
+  clearTimeout(draftTimer);
+  saveDraftNow();
+}
+window.addEventListener('pagehide', flushDraft);
+window.addEventListener('hashchange', flushDraft);
+async function saveDraftNow() {
+  if (!draftPending) return;
+  const { c, text } = draftPending;
+  draftPending = null;
+  const saved = await saveDecision(c, { message: text });
+  const status = document.getElementById('draft-status');
+  if (saved && status) status.textContent = decideWords(c).saved;
+  const plain = document.getElementById('plain-slot');
+  if (plain && !c.plainBusy) plain.innerHTML = plainSection(c);
+}
+
+async function copyDraft(c, button) {
+  const w = decideWords(c);
+  const text = document.getElementById('draft-text')?.value || c.decisions?.message || '';
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Older browsers: select the text and copy it the old way.
+    const box = document.getElementById('draft-text');
+    box?.select();
+    if (!document.execCommand?.('copy')) {
+      toast(w.copyFailed);
+      return;
+    }
+  }
+  button.innerHTML = `${icons.check} ${escapeHtml(w.copied)}`;
+  setTimeout(() => { button.innerHTML = `${icons.doc} ${escapeHtml(w.copy)}`; }, 2000);
 }
 
 // ---------- Risks & scam check (mockups 3 and 3b) ----------
@@ -1004,7 +1499,8 @@ function renderRisks(c) {
     ${items.length ? `
       <h2 class="h2">What we found</h2>
       ${items.map((r) => `
-        <a class="card risk-item" href="#/contract/${c.id}/doc/${r.index}">
+        <div class="card risk-card${markOf(c, r.index) === 'wrong' ? ' risk-disagreed' : ''}">
+        <a class="risk-item" href="#/contract/${c.id}/doc/${r.index}">
           <span class="risk-icon lvl-${r.level}">${RISK_ICONS[r.category] || RISK_ICONS.other}</span>
           <span class="risk-body">
             <span class="risk-item-title">${escapeHtml(riskText(c, r.index, 'title'))}</span>
@@ -1012,10 +1508,15 @@ function renderRisks(c) {
             ${whyLine(c, r, tr)}
             <span class="risk-item-foot">
               <span class="level-pill lvl-${r.level}">${LEVEL_LABEL[r.level]}</span>
+              ${markOf(c, r.index) === 'wrong' ? `<span class="disagreed-pill" lang="${langAttr(c)}">${escapeHtml(decideWords(c).disagreed)}</span>` : ''}
               <span class="risk-link">${escapeHtml(clauseLabel(r.clause_numbers[0]))}${r.clause_numbers.length > 1 ? ` +${r.clause_numbers.length - 1}` : ''} ${icons.chevSmall}</span>
             </span>
           </span>
-        </a>`).join('')}` : ''}
+        </a>
+        ${markButtons(c, r)}
+        </div>`).join('')}` : ''}
+
+    ${decideCard(c)}
 
     <div class="help-row">
       <a class="btn btn-primary" href="#/contract/${c.id}/ask">${icons.chat} Ask the chatbot</a>
@@ -1361,6 +1862,7 @@ function chatMessage(c, m) {
           </div>
           <div class="msg-clause" hidden></div>` : ''}
       </div>
+      ${m.decide ? `<a class="btn btn-secondary chat-decide" href="#/contract/${c.id}/decide" lang="${langAttr(c)}">${icons.check} ${escapeHtml(decideWords(c).openDecide)}</a>` : ''}
       ${m.not_sure ? EXPERT_CARD : ''}
     </div>`;
 }
@@ -1699,7 +2201,10 @@ function readAloudContent(c, tab, extra) {
     const items = list.map((r) => ({
       title: tr?.[r.index]?.title || r.title,
       explanation: tr?.[r.index]?.explanation || r.explanation,
-      why: r.why && (tr ? ttr && whyText(c, r, ttr) : r.why),
+      // Read with its label, in the same language as the rest.
+      why: r.why && (tr
+        ? translatedWhy(r, ttr) && `${forYouWords(c).why} ${translatedWhy(r, ttr)}`
+        : `${FOR_YOU_WORDS.en.why} ${r.why}`),
     }));
     const at = Math.max(list.findIndex((r) => r.index === (Number(extra) || 0)), 0);
     const pick = tab === 'doc' ? [items[at]] : items;
@@ -1883,6 +2388,14 @@ async function render() {
         await showAsync(loadContract(id).then((c) => renderPersonal(c, extra)));
         return;
       }
+      if (tabParam === 'decide') {
+        await showAsync(loadContract(id).then((c) => {
+          setChrome({ title: decideWords(c).title, nav: 'contracts', inner: true });
+          redactor = makeRedactor(c, [c.risks?.company?.payee]); // like Risks: the payee stays visible
+          return renderDecide(c);
+        }));
+        return;
+      }
       if (tabParam === 'situation') {
         setChrome({ title: 'Your situation', nav: 'contracts', inner: true });
         await showAsync(loadContract(id).then(renderSituation));
@@ -1927,6 +2440,46 @@ async function render() {
 }
 
 screen.addEventListener('click', (e) => {
+  // "You decide" (PRD FR8)
+  const markBtn = e.target.closest('[data-mark]');
+  if (markBtn) {
+    const c = contractCache.get(parseRoute().params[0]);
+    if (!c) return;
+    const index = Number(markBtn.dataset.index);
+    setMark(c, index, markBtn.dataset.mark);
+    // Update just this card (and the count on the "You decide" card), keeping the scroll position.
+    const card = markBtn.closest('.risk-card');
+    const mark = markOf(c, index);
+    card.querySelectorAll('[data-mark]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mark === mark)));
+    card.classList.toggle('risk-disagreed', mark === 'wrong');
+    card.querySelector('.disagreed-pill')?.remove();
+    if (mark === 'wrong') {
+      card.querySelector('.level-pill')?.insertAdjacentHTML('afterend', `<span class="disagreed-pill" lang="${langAttr(c)}">${escapeHtml(decideWords(c).disagreed)}</span>`);
+    }
+    const decide = document.querySelector('.decide-card');
+    if (decide) decide.outerHTML = decideCard(c);
+    return;
+  }
+  const choiceBtn = e.target.closest('[data-choice]');
+  if (choiceBtn) {
+    const c = contractCache.get(parseRoute().params[0]);
+    if (!c) return;
+    const choice = c.decisions?.choice === choiceBtn.dataset.choice ? null : choiceBtn.dataset.choice;
+    c.decisions = { ...c.decisions, choice };
+    saveDecision(c, { choice });
+    document.getElementById('options-slot').innerHTML = optionsSection(c);
+    return;
+  }
+  if (e.target.closest('[data-make-draft], [data-new-draft], [data-copy-draft], [data-update-plain]')) {
+    const c = contractCache.get(parseRoute().params[0]);
+    if (!c) return;
+    const btn = e.target.closest('button');
+    if (btn.matches('[data-copy-draft]')) copyDraft(c, btn);
+    else if (btn.matches('[data-update-plain]')) updatePlain(c);
+    else if (btn.matches('[data-make-draft]') || confirm(decideWords(c).replaceDraft)) makeDraft(c);
+    return;
+  }
+
   const tabBtn = e.target.closest('.tab');
   if (tabBtn) {
     const { params } = parseRoute();
@@ -2050,6 +2603,7 @@ screen.addEventListener('keydown', (e) => {
 backBtn.addEventListener('click', () => {
   const { name, params } = parseRoute();
   if (name === 'contract' && (params[1] === 'personal' || params[1] === 'situation')) location.hash = `#/contract/${params[0]}/summary`;
+  else if (name === 'contract' && params[1] === 'decide') location.hash = `#/contract/${params[0]}/risks`;
   else location.hash = name === 'contract' ? '#/contracts' : '#/home';
 });
 

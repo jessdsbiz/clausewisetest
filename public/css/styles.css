@@ -1557,8 +1557,9 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
 }
 .for-you-icon svg { width: 20px; height: 20px; }
 .for-you-body { flex: 1; min-width: 0; }
-.for-you-eyebrow { display: block; color: #d8ccff; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.for-you-text { display: block; font-size: 0.88rem; font-weight: 600; line-height: 1.35; }
+/* A clear heading, so the tailoring stands out straight away, with what it means underneath */
+.screen .for-you-title { margin: 0 0 2px; color: #fff; font-size: 1.12rem; font-weight: 800; line-height: 1.25; letter-spacing: -0.01em; }
+.screen .for-you-text { margin: 0; color: #e6dcff; font-size: 0.86rem; font-weight: 500; line-height: 1.4; }
 .for-you-btn {
   flex-shrink: 0;
   padding: 9px 12px;
@@ -1623,3 +1624,143 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
 }
 .risk-why strong { color: var(--purple-strong); }
 .screen .doc-sheet .sheet-why { margin-top: 8px; }
+
+/* ---------- You decide (PRD FR8, styled after mockup 6) ---------- */
+
+/* Risks tab: each warning is a card holding its link and the three mark buttons */
+.risk-card { padding: 16px 16px 12px; }
+.risk-card .risk-item:hover { box-shadow: none; }
+.risk-card:has(.risk-item:hover) { box-shadow: var(--shadow-lift); }
+.mark-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0 54px; }
+.mark-btn {
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lavender-soft);
+  box-shadow: inset 0 0 0 1px var(--lavender);
+  color: var(--purple-strong);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mark-btn:hover { background: var(--lavender); }
+.mark-btn[aria-pressed="true"] { background: var(--deep); box-shadow: none; color: #fff; }
+.mark-btn.mark-ok[aria-pressed="true"] { background: var(--success); }
+.mark-btn.mark-wrong[aria-pressed="true"] { background: var(--muted); }
+.risk-disagreed .risk-item { opacity: 0.7; }
+.disagreed-pill { margin-left: 6px; padding: 3px 10px; border-radius: 6px; background: var(--line); color: var(--muted); font-size: 0.78rem; font-weight: 700; }
+.risk-item-foot .disagreed-pill { margin-right: auto; }
+
+/* The way into "You decide", at the end of the Summary and Risks tabs */
+.decide-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--lavender);
+  color: var(--deep);
+  text-decoration: none;
+}
+.decide-card:hover { background: #e2dcfc; }
+.decide-card-icon { display: grid; place-items: center; width: 40px; height: 40px; flex-shrink: 0; border-radius: 12px; background: var(--deep); color: #fff; }
+.decide-card-icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2.4; }
+.decide-card-body { flex: 1; min-width: 0; }
+.decide-card-title { display: block; font-size: 1.05rem; font-weight: 800; }
+.decide-card-text { display: block; color: var(--purple-strong); font-size: 0.85rem; line-height: 1.35; }
+
+/* The screen: dark header card like mockup 6's "Your checklist" */
+.decide-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: 20px;
+  border-radius: var(--radius);
+  background: var(--deep);
+  color: #fff;
+}
+.decide-count {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 6px solid rgba(255, 255, 255, 0.16);
+  border-top-color: #c4b5fd;
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+.screen .decide-title { margin: 0; color: #fff; font-size: 1.4rem; font-weight: 800; line-height: 1.2; }
+.screen .decide-sub { margin: 2px 0 8px; color: #d8ccff; font-size: 0.88rem; }
+.decide-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #fdecea; color: var(--high); font-size: 0.78rem; font-weight: 700; }
+.screen .decide-h2 { margin: 20px 4px 10px; font-size: 1.05rem; }
+.screen .decide-note { margin: -4px 4px 10px; color: var(--muted); font-size: 0.85rem; }
+
+.ask-list { padding: 4px 16px; }
+.ask-item { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ask-item:last-child { border-bottom: 0; }
+.ask-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--purple); }
+.ask-dot.lvl-high { background: var(--high); }
+.ask-dot.lvl-medium { background: var(--medium); }
+.ask-text { flex: 1; font-weight: 600; font-size: 0.95rem; line-height: 1.35; }
+.clause-chip { flex-shrink: 0; padding: 3px 8px; border-radius: 6px; background: var(--lavender); color: var(--purple-strong); font-size: 0.78rem; font-weight: 700; text-decoration: none; }
+.clause-chip.lvl-high { background: var(--high-bg); color: var(--high); }
+.clause-chip.lvl-medium { background: var(--medium-bg); color: var(--medium); }
+.screen .decide-empty p { margin: 0 0 12px; color: var(--muted); }
+
+/* The draft message */
+.screen .draft-label { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--purple-strong); font-size: 0.85rem; font-weight: 700; }
+.draft-label svg { width: 16px; height: 16px; flex-shrink: 0; }
+.draft-text {
+  width: 100%;
+  min-height: 220px;
+  padding: 12px;
+  border: 1px solid var(--lavender);
+  border-radius: var(--radius-sm);
+  background: var(--lavender-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+.draft-text:focus { outline: 2px solid var(--purple); outline-offset: 1px; background: #fff; }
+.draft-status { min-height: 1.2em; margin: 4px 2px 0; color: var(--success); font-size: 0.8rem; font-weight: 700; }
+.draft-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.draft-actions .btn { padding: 12px 10px; font-size: 0.92rem; }
+.screen .draft-note { margin: 10px 2px 0; color: var(--muted); font-size: 0.8rem; }
+.plain-card { background: var(--lavender-soft); box-shadow: inset 0 0 0 1px var(--lavender); }
+.screen .plain-label { margin: 0 0 6px; color: var(--purple-strong); font-size: 0.82rem; font-weight: 800; }
+.screen .plain-text { margin: 0 0 8px; font-size: 0.95rem; line-height: 1.55; }
+.screen .plain-outdated { margin: 0 0 8px; color: var(--medium); font-size: 0.85rem; font-weight: 600; }
+
+/* Four options: same size and style, none picked or highlighted until the user taps one */
+.choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.choice-btn {
+  min-height: 56px;
+  padding: 12px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--lavender), var(--shadow);
+  color: var(--deep);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.choice-btn:hover { background: var(--lavender-soft); }
+.choice-btn[aria-pressed="true"] { background: var(--deep); box-shadow: none; color: #fff; }
+.choice-next { margin-top: 12px; }
+.screen .choice-next p { margin: 0; font-size: 0.92rem; line-height: 1.5; }
+.choice-help { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 0.82rem; }
+.screen .decide-foot { margin: 22px 8px 8px; color: var(--muted); font-size: 0.82rem; line-height: 1.5; text-align: center; }
+.screen .decide-foot strong { color: var(--ink); }
+
+/* Chatbot: "Should I sign?" points to You decide */
+.chat-decide { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 10px 14px; font-size: 0.88rem; }
+.chat-decide svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.4; }

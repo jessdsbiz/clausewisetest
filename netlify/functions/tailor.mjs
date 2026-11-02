@@ -66,6 +66,7 @@ export async function makeTailored({ contract_type: type, clauses, summary, risk
   const words = String(situation || '').trim();
   const lookup = clauseLookup(clauses);
   const refs = (list) => [...new Set((Array.isArray(list) ? list : [list]).flat().filter(Boolean).map(lookup).filter(Boolean))];
+  const isNumbered = (n) => /^\d/.test(n);
 
   const terms = summary.filter((s) => s.key !== 'key_date' && s.found);
   const items = risks.items || [];
@@ -138,19 +139,24 @@ export async function makeTailored({ contract_type: type, clauses, summary, risk
     const check = text ? checkPoint(clauses, { texts: [text], quotes: [s?.quote], cited: refs(s?.clauses), extra: [words] }) : { ok: false, why: 'no step' };
     return { text, help: help in HELP_SOURCES ? help : fallbackHelp, check };
   };
+  const checkedStep = async (s) => {
+    const first = checkStep(s, s?.help);
+    if (first.check.ok) return first;
+    if (!first.text) return null;
+    const fixed = await repairStep(clauses, first.text, refs(s?.clauses), first.check.why, words, timeLeft);
+    const second = fixed?.step ? checkStep(fixed, s?.help) : null;
+    console.log(`Plan step ("${first.text.slice(0, 60)}") failed the check: ${first.check.why}. Rewrite ${second?.check.ok ? 'passed' : `failed${second ? `: ${second.check.why}` : ''}`}.`);
+    return second?.check.ok ? second : null;
+  };
+  // The prompt asks for a numbered clause whenever one says it. A step about a part the contract
+  // itself doesn't number (BrightPath's letterhead "Intro" or its "Acceptance" section) keeps that
+  // part's name: moving it to a numbered clause made the AI rewrite the step about something else.
   const buildPlan = async (raw) => {
-    const steps = await Promise.all((Array.isArray(raw) ? raw : []).slice(0, MAX_STEPS).map(async (s) => {
-      const first = checkStep(s, s?.help);
-      if (first.check.ok) return first;
-      if (!first.text) return null;
-      const fixed = await repairStep(clauses, first.text, refs(s?.clauses), first.check.why, words, timeLeft);
-      const second = fixed?.step ? checkStep(fixed, s?.help) : null;
-      console.log(`Plan step ("${first.text.slice(0, 60)}") failed the check: ${first.check.why}. Rewrite ${second?.check.ok ? 'passed' : `failed${second ? `: ${second.check.why}` : ''}`}.`);
-      return second?.check.ok ? second : null;
-    }));
+    const steps = await Promise.all((Array.isArray(raw) ? raw : []).slice(0, MAX_STEPS).map(checkedStep));
     const texts = new Set();
     return steps.filter((s) => s && !texts.has(s.text) && texts.add(s.text))
-      .map(({ text, help, check }) => ({ text, clause_numbers: check.clause_numbers, help }));
+      // Numbered clauses first, so the row shows "Cl. 5.3" rather than a section name.
+      .map(({ text, help, check }) => ({ text, clause_numbers: [...check.clause_numbers].sort((a, b) => isNumbered(b) - isNumbered(a)), help }));
   };
 
   let plan = await buildPlan(ai?.plan);

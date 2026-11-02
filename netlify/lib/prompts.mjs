@@ -222,7 +222,8 @@ Rules:
 - Write 1 to 4 short sentences in plain English, to "you". Use **bold** for the key amount, deadline or name.
 - "clauses": the labels of the parts your answer comes from, exactly as in the brackets (e.g. "2.6", "Schedule B").
 - "quotes": 1 to 3 quotes that prove the answer. For each, ${QUOTE_RULE} For a table row, copy the row as it is written.
-- Never say the contract or company is safe, legal, illegal or a scam. You may say "a common scam sign" or "worth asking about".${language}
+- Never say the contract or company is safe, legal, illegal or a scam. You may say "a common scam sign" or "worth asking about".
+- Never tell them to sign or not sign, accept or reject, or say what you would do. That choice is theirs.${language}
 
 Warning signs already found in this contract (from its own clauses):
 ${warnings.length ? warnings.map((w) => `- ${w}`).join('\n') : '- none'}
@@ -398,7 +399,7 @@ Read their words as written. Do not sort them into categories or assume anything
 
 3. "plan": 3 to 6 steps to do BEFORE signing, most important first. If they told us nothing, base it on the contract alone.
 - "step": one clear action in plain words, at most 25 words, written to "you" (check, ask, get in writing, keep a copy, get advice). Every number, amount, date and name in it must be inside its quote or in their own words.
-- "clauses": the label of the part the step is about. "quote": ${QUOTE_RULE}
+- "clauses": the label of the numbered clause the step is about (e.g. "5.3"), and quote from it. Use an unnumbered part such as [Intro] or [Acceptance] only when no numbered clause says it. "quote": ${QUOTE_RULE}
 - "help": who can help with this step, exactly one of: ${Object.entries(HELP_SOURCES).map(([k, v]) => `${k} (${v})`).join('; ')}.
 - Do not write phone numbers, websites or links: the app adds them.
 
@@ -423,3 +424,35 @@ ${READING_RULES}
 Rewrite the step about the same thing, so that every number, amount, date and name in it is inside your quote or in the person's own words. For the quote, ${QUOTE_RULE}
 One clear action in plain words, at most 25 words, written to "you". Never tell them to sign or not to sign. If the step cannot be shown with a quote, set "step" to "".
 Reply with JSON only: { "step": "...", "clauses": ["<label>"], "quote": "..." }`;
+
+// ---------- "You decide" (PRD FR8) ----------
+
+// Who the draft goes to, by contract type.
+export const RECIPIENT = {
+  job_offer: 'the employer', rental: 'the landlord', phone_subscription: 'the telco or provider',
+  loan: 'the lender', business: 'the other company', other: 'the other party',
+};
+
+// The draft message: always in English, since it goes to the other party. `lang` adds a
+// plain-words version in the user's own language, for them only.
+export function draftSystem(lang) {
+  const plain = lang === 'en' ? '' : `
+- "plain": what the message says, in ${LANGUAGE_NAMES[lang]}, in simple everyday words for the person sending it (not a word-for-word translation, and not for sending). 2 to 5 short sentences. Keep amounts, dates and clause numbers as they are.`;
+  return `You help a person in Singapore with no legal background write a short, polite message to the other party of a contract before they sign. They want to ask about some points. You only write the draft: they will check it, edit it and decide whether to send it.
+
+Rules for "message":
+- In English, polite and friendly, short: a greeting, one short paragraph or a short list asking about each point (name its clause, e.g. "Clause 5.3"), and a thank-you. At most 150 words.
+- Ask questions or ask for things in writing. Never threaten, never mention lawyers, courts, police or reporting them, and never say anything is illegal, unlawful, a scam, fraud or not allowed.
+- Never say they will or will not sign.
+- Use only numbers, amounts, dates and names that are in the points or contract parts below, written the same way. Do not invent details.
+- Start with "Hello," (or "Hello <company name>," using the company name exactly as given). End with "Thank you." on its own line (no other thank-you or sign-off before it), then "[your name]" on the next line. Do not write any other name of the person sending it, and no NRIC, phone, bank or address details.${plain}
+
+Reply with JSON only: { "message": "..."${lang === 'en' ? '' : ', "plain": "..."'} }`;
+}
+
+// The plain-words version of a draft the user has edited.
+export function plainSystem(lang) {
+  return `You explain a message a person in Singapore wrote to the other party of their contract, so they understand exactly what they are sending.
+Write what the message says in ${LANGUAGE_NAMES[lang]}, in simple everyday words: 2 to 6 short sentences. Do not add, drop or change anything it asks. Keep amounts, dates, names and clause numbers as they are. This is not for sending.
+Reply with JSON only: { "plain": "..." }`;
+}

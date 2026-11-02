@@ -48,7 +48,8 @@ const TIMEOUT_MS = 35000;
 const TIMED_OUT = 408;
 
 // `what` describes the action in a few words ("reading your photo") for error messages.
-export async function api(path, { method = 'GET', json, body, what } = {}) {
+// `keepalive`: the request carries on if the page is closed or reloaded (small saves only).
+export async function api(path, { method = 'GET', json, body, what, keepalive = false } = {}) {
   const headers = { 'X-Device-Id': deviceId() };
   if (json !== undefined) {
     headers['Content-Type'] = 'application/json';
@@ -60,7 +61,7 @@ export async function api(path, { method = 'GET', json, body, what } = {}) {
   let res;
   let data;
   try {
-    res = await fetch(`/.netlify/functions/${path}`, { method, headers, body, signal: controller.signal });
+    res = await fetch(`/.netlify/functions/${path}`, { method, headers, body, keepalive, signal: controller.signal });
     data = await res.json().catch((e) => {
       if (controller.signal.aborted) throw e; // stopped while the reply was arriving
       return {};

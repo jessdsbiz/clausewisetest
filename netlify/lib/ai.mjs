@@ -26,6 +26,7 @@ export const SUMMARY_MODEL = pick('summary');
 export const VERIFY_MODEL = pick('verify');
 export const TAILOR_MODEL = pick('tailor');
 export const TRANSLATE_MODEL = pick('translate');
+export const DECIDE_MODEL = pick('decide');
 
 // How long a function may run: Netlify stops it after 30s, on the live site and in netlify dev.
 export const FUNCTION_LIMIT_MS = 30000;
