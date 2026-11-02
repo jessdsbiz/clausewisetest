@@ -5,7 +5,7 @@ import { pdfToText, preparePhoto, readPage } from './extract.js';
 import { composePanel } from './comic-kit.js';
 import { hidePersonalNumbers } from './privacy.js';
 import { UI_TEXT, UI_PATTERNS } from './ui-text.js';
-import { speak, stop as stopSpeaking, speechSupported, isSpeaking, onSpeakingChange, onSpeechError } from './speech.js';
+import { speak, stop as stopSpeaking, togglePause, speechSupported, isSpeaking, onSpeakingChange, onSpeechError } from './speech.js';
 import { voiceSupported, listenInto, stopListening } from './voice.js';
 
 const screen = document.getElementById('screen');
@@ -3214,8 +3214,9 @@ function readAloudContent(c, tab, extra) {
 }
 
 async function toggleReadAloud() {
+  // While reading, the speaker button pauses and resumes; "Stop reading" stops.
   if (isSpeaking()) {
-    stopSpeaking();
+    togglePause();
     return;
   }
   const { name, params } = parseRoute();
@@ -4631,7 +4632,8 @@ screen.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('[data-listen]')) {
-    toggleReadAloud();
+    if (isSpeaking()) stopSpeaking();
+    else toggleReadAloud();
     return;
   }
   const retryTranslate = e.target.closest('[data-retry-translate]');
