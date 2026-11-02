@@ -17,6 +17,7 @@ let speaking = false;
 let paused = false;
 let listener = () => {};
 let errorListener = () => {};
+let loadingListener = () => {};
 let session = 0; // a new read-aloud (or a stop) ends the old one
 let audio = null;
 const clipCache = new Map(); // "lang|text" -> object URL
@@ -28,6 +29,10 @@ export function onSpeakingChange(fn) {
 }
 export function onSpeechError(fn) {
   errorListener = fn;
+}
+// True while the next audio part is being made (the speaker button shows a loading state).
+export function onLoadingChange(fn) {
+  loadingListener = fn;
 }
 
 function setSpeaking(value) {
@@ -66,16 +71,21 @@ export async function findVoice(lang) {
   return null;
 }
 
-// One part as an audio URL, from the cache or from Azure (through our function).
+// One part as an audio URL, from the cache or from Azure (through our function). One retry if it fails.
 async function clipFor(text, lang) {
   const key = `${lang}|${text}`;
   if (clipCache.has(key)) return clipCache.get(key);
-  const response = await fetch('/.netlify/functions/speech', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ text, lang }),
-  });
-  if (!response.ok) throw new Error('azure');
+  let response = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    response = await fetch('/.netlify/functions/speech', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, lang }),
+    }).catch(() => null);
+    if (response?.ok) break;
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 700));
+  }
+  if (!response?.ok) throw new Error('azure');
   const { audio: base64 } = await response.json();
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
   const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
@@ -147,9 +157,11 @@ export async function speak(texts, lang) {
       return;
     }
     let url;
+    loadingListener(true);
     try {
       url = await clipFor(parts[index], lang);
     } catch {
+      loadingListener(false);
       // Azure failed: the device voice reads the rest.
       if (mine !== session) return;
       audio = null;
@@ -164,6 +176,7 @@ export async function speak(texts, lang) {
       return;
     }
     if (mine !== session) return;
+    loadingListener(false);
     audio = new Audio(url);
     audio.onended = () => playFrom(index + 1);
     audio.onerror = () => { if (mine === session) { setSpeaking(false); errorListener('audio'); } };

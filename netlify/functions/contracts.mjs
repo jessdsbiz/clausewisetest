@@ -62,16 +62,20 @@ export default async (req) => {
 
 async function list(deviceId) {
   const rows = await selectContracts(
-    `select=${LIST_FIELDS},summary,risks&device_id=eq.${deviceId}&order=created_at.desc`);
+    `select=${LIST_FIELDS},summary,risks,translations&device_id=eq.${deviceId}&order=created_at.desc`);
   // Only counts and the key-date rows leave here, for the desktop layout's status chips and the
   // Deadlines page and badge. null counts: not made yet.
-  return Response.json(rows.map(({ summary, risks, ...row }) => ({
+  return Response.json(rows.map(({ summary, risks, translations, ...row }) => ({
     ...row,
     scam_signs: Array.isArray(risks?.items) ? risks.items.filter((r) => r.kind === 'scam_sign').length : null,
     to_check: Array.isArray(risks?.items) ? risks.items.length : null,
     key_dates: Array.isArray(summary)
-      ? summary.filter((s) => s.key === 'key_date' && s.found !== false)
-        .map((s) => ({ text: s.plain_text || '', clauses: Array.isArray(s.clause_numbers) ? s.clause_numbers : [] }))
+      ? summary.map((s, index) => ({ s, index })).filter(({ s }) => s.key === 'key_date' && s.found !== false)
+        .map(({ s, index }) => {
+          // Shown in the contract's language when it has been translated; the English original is kept for the dates.
+          const translated = translations?.[row.language]?.summary?.[index]?.plain_text;
+          return { text: translated || s.plain_text || '', source: s.plain_text || '', clauses: Array.isArray(s.clause_numbers) ? s.clause_numbers : [] };
+        })
       : [],
   })));
 }

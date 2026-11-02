@@ -56,8 +56,9 @@ export default async (req) => {
         .map(([i]) => Number(i))
         .sort((a, b) => a - b);
       if (!marked.length) throw new HttpError(409, 'Mark a warning "I\'ll ask about this" on the Risks tab to get a draft message.');
-      const { message, plain } = await makeDraft(row, clauses, marked, lang, timeLeft);
-      change = { message, message_plain: plain ? { lang, text: plain } : null, plain_outdated: false, draft_for: marked };
+      const { message, plain, unchecked } = await makeDraft(row, clauses, marked, lang, timeLeft);
+      // unchecked: the draft is shown with a note to check one part against the contract (e.g. named sections).
+      change = { message, message_plain: plain ? { lang, text: plain } : null, plain_outdated: false, draft_for: marked, message_unchecked: Boolean(unchecked) };
     } else {
       if (lang === 'en') throw new HttpError(400, 'The plain-words version is for Chinese, Malay or Tamil.');
       if (!saved.message) throw new HttpError(409, 'There is no draft message yet.');
@@ -92,6 +93,7 @@ async function makeDraft(row, clauses, marked, lang, timeLeft) {
   ].join('\n\n');
 
   let note = '';
+  let soft = null; // the last draft that is fine except for the fact check
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt && timeLeft() < 10000) break;
     const ai = await chatJsonHedged({
@@ -106,9 +108,12 @@ async function makeDraft(row, clauses, marked, lang, timeLeft) {
     const message = tidyDraft(ai?.message, row);
     const problem = draftProblem(message, clauses);
     if (!problem) return { message, plain: lang === 'en' ? '' : cleanPlain(ai?.plain, lang) };
+    const hard = !message || message.split(/\s+/).length < 12 || BANNED.test(message) || THREATS.test(message);
+    if (!hard) soft = { message, plain: lang === 'en' ? '' : cleanPlain(ai?.plain, lang), problem };
     console.log(`Draft message failed the check: ${problem}.${attempt ? '' : ' Asking again.'}`);
     note = `\n\nYour last draft could not be used because ${problem}. Write it again and fix that.`;
   }
+  if (soft) return { message: soft.message, plain: soft.plain, unchecked: soft.problem };
   throw new HttpError(502, 'We couldn\'t make a draft we could check against your contract. Please try again.');
 }
 

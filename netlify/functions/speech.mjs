@@ -31,26 +31,42 @@ export default async (req) => {
     if (!key || !region) throw new HttpError(503, 'Read-aloud is not set up yet.');
 
     const ssml = `<speak version="1.0" xml:lang="${voice.locale}"><voice name="${voice.voice}">${escapeXml(clean)}</voice></speak>`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    let response;
-    try {
-      response = await fetch(`https://${encodeURIComponent(region)}.tts.speech.microsoft.com/cognitiveservices/v1`, {
-        method: 'POST',
-        headers: {
-          'Ocp-Apim-Subscription-Key': key,
-          'Content-Type': 'application/ssml+xml',
-          'X-Microsoft-OutputFormat': 'audio-16khz-64kbitrate-mono-mp3',
-          'User-Agent': 'clausewise-sg',
-        },
-        body: ssml,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
+    // One retry on a busy or failed call. Only the status code is reported, never the key.
+    let response = null;
+    let status = 0;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        response = await fetch(`https://${encodeURIComponent(region)}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+          method: 'POST',
+          headers: {
+            'Ocp-Apim-Subscription-Key': key,
+            'Content-Type': 'application/ssml+xml',
+            'X-Microsoft-OutputFormat': 'audio-16khz-64kbitrate-mono-mp3',
+            'User-Agent': 'clausewise-sg',
+          },
+          body: ssml,
+          signal: controller.signal,
+        });
+        status = response.status;
+      } catch {
+        response = null;
+        status = 0;
+      } finally {
+        clearTimeout(timer);
+      }
+      if (response?.ok) break;
+      if (attempt === 0 && (status === 0 || status === 429 || status >= 500)) {
+        await new Promise((r) => setTimeout(r, 700));
+        continue;
+      }
+      break;
     }
-    // The status only, never the key or Azure's message.
-    if (!response.ok) throw new HttpError(502, 'Read-aloud could not be made right now.');
+    if (!response?.ok) {
+      console.log(`Azure speech failed with status ${status} for ${voice.voice}`);
+      return Response.json({ error: 'azure', status }, { status: 502 });
+    }
     const audio = Buffer.from(await response.arrayBuffer()).toString('base64');
     return Response.json({ audio });
   } catch (err) {

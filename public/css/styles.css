@@ -556,6 +556,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
 .tab {
   min-height: 42px;
+  white-space: nowrap; /* a tab label never breaks mid-word */
+  overflow: hidden;
+  padding: 0 4px;
   border: 0;
   border-radius: 12px;
   background: transparent;
@@ -1135,8 +1138,8 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
 
 .comic-body { container-type: inline-size; }
 /* One column for narrow panels, so the speech bubble text stays readable (at least 13px). */
-.panels { display: grid; grid-template-columns: 1fr; gap: 8px; }
-@container (min-width: 600px) { .panels { grid-template-columns: 1fr 1fr; } }
+/* Always a 2 x 2 grid of panels, on phone and desktop. */
+.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .panel {
   display: flex;
   flex-direction: column;
@@ -1157,8 +1160,8 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
   min-height: 64px;
   padding: 8px 10px 4px;
   font-family: var(--font);
-  font-size: 0.95rem;
-  font-weight: 500;
+  font-size: 0.85rem; /* 13-14px */
+  font-weight: 400;
   line-height: 1.35;
   color: var(--ink);
 }
@@ -1182,7 +1185,8 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
   vertical-align: 1px;
 }
 .panel.key .panel-num { background: var(--purple-strong); color: #fff; }
-.comic-art { display: block; width: 100%; height: auto; margin-top: auto; aspect-ratio: 4 / 3; }
+.comic-art { display: block; width: 100%; height: auto; max-height: 200px; margin-top: auto; aspect-ratio: 4 / 3; }
+html[data-layout="desktop"] .comic-art { max-width: 240px; margin-left: auto; margin-right: auto; }
 
 .screen .ai-label {
   display: inline-flex;
@@ -2577,3 +2581,25 @@ html[data-layout="desktop"] .help-chip { padding: 0 12px; }
 .voice-interim { margin: 6px 2px 0; color: #6E6890; font-size: 14px; font-style: italic; line-height: 1.45; min-height: 1.2em; overflow-wrap: anywhere; }
 .mic-btn.mic-btn-stop { width: auto; min-width: 44px; padding: 0 12px; gap: 6px; display: inline-flex; align-items: center; justify-content: center; background: #B42318; color: #FFFFFF; font-size: 14px; font-weight: 800; }
 .mic-btn.mic-btn-stop svg { stroke: #FFFFFF; fill: #FFFFFF; width: 14px; height: 14px; }
+
+/* ---------- Speaker loading state ---------- */
+.is-loading { opacity: 0.6; cursor: progress; }
+
+/* Tamil and Malay labels are longer: a smaller font keeps each tab label on one line. */
+html[lang="ta"] .tab, html[lang="ms"] .tab { font-size: 0.78rem; letter-spacing: 0; }
+
+/* Long clause names (sections with names, e.g. "ENDORSEMENT A - CLAIMS ADMINISTRATION"): the reference
+   goes on its own line under the text, and the main text always uses the full width. */
+.point-head { flex-wrap: wrap; justify-content: flex-start; }
+.point-head > .point-title { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.point-ref { white-space: normal; max-width: 100%; overflow-wrap: anywhere; }
+.ask-item { flex-wrap: wrap; }
+.ask-item .ask-text { flex: 1 1 calc(100% - 40px); min-width: 0; overflow-wrap: anywhere; }
+.ask-item .clause-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.clause-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.draft-note { margin: 8px 0 0; padding: 8px 12px; border-radius: 10px; background: #FFF3C4; color: #5C4300; font-size: 0.9rem; font-weight: 600; }
+
+/* Tabs grow to fit their label (a Tamil or Malay label is longer); on a very narrow screen the row scrolls. */
+.tabs { grid-template-columns: repeat(4, minmax(max-content, 1fr)); overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { min-width: max-content; padding: 0 8px; }

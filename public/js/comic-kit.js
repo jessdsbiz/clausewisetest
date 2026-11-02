@@ -229,19 +229,21 @@ function wrapFit(text, size, max) {
   return lines;
 }
 
-// The biggest size (22, 19, then 16) at which the text fits in BUBBLE_MAX_LINES lines.
-function layoutBubble(text) {
-  for (const size of [22, 19, 16]) {
+// The biggest size in `sizes` at which the text fits in BUBBLE_MAX_LINES lines. Sizes are in picture units:
+// on a phone the 2 x 2 panels draw at about half size, so 24 units is about 12px on screen.
+function layoutBubble(text, sizes) {
+  for (const size of sizes) {
     const lines = wrapFit(text, size, BUBBLE_INNER);
     if (lines.length <= BUBBLE_MAX_LINES) return { size, lines };
   }
-  return { size: 16, lines: wrapFit(text, 16, BUBBLE_INNER) };
+  const last = sizes[sizes.length - 1];
+  return { size: last, lines: wrapFit(text, last, BUBBLE_INNER) };
 }
 
 const escapeXml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function bubble(text, speakerX) {
-  const { size, lines } = layoutBubble(text);
+function bubble(text, speakerX, sizes) {
+  const { size, lines } = layoutBubble(text, sizes);
   const widest = Math.max(...lines.map((l) => textUnits(l, size)));
   const width = Math.min(W - 12, widest + 28);
   const lineH = Math.round(size * 1.3);
@@ -278,7 +280,9 @@ function riskSign(kind, meiX) {
 }
 
 // spec: { background, mei: { expression, outfit, holding }, other, otherMood, speech: { who: 'mei' | 'other', text }, sign }
-export function composePanel({ background = 'home_desk', mei = {}, other = null, otherMood, speech = null, sign = null }) {
+export function composePanel({ background = 'home_desk', mei = {}, other = null, otherMood, speech = null, sign = null, dense = false }) {
+  // Phone panels are drawn about half size (25 units ~ 12px); desktop panels about 3/4 size (17 units ~ 13px).
+  const sizes = dense ? [17, 16] : [25, 23, 20, 16];
   const withOther = other && CHARACTERS[other];
   const meiX = withOther ? 12 : (W - CHAR_W) / 2;
   const otherX = W - CHAR_W - 12;
@@ -289,7 +293,7 @@ export function composePanel({ background = 'home_desk', mei = {}, other = null,
       ${(BACKGROUNDS[background] || BACKGROUNDS.home_desk)()}
       ${withOther ? `<svg x="${otherX}" y="${y}" width="${CHAR_W}" height="${CHAR_H}" viewBox="0 0 200 260">${CHARACTERS[other](otherMood)}</svg>` : ''}
       <svg x="${meiX}" y="${y}" width="${CHAR_W}" height="${CHAR_H}" viewBox="0 0 200 260">${meiInner(mei)}</svg>
-      ${speech?.text ? bubble(speech.text, speakerX) : ''}
+      ${speech?.text ? bubble(speech.text, speakerX, sizes) : ''}
       ${riskSign(sign, meiX)}
     </svg>`;
 }

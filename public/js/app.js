@@ -5,7 +5,7 @@ import { pdfToText, preparePhoto, readPage } from './extract.js';
 import { composePanel } from './comic-kit.js';
 import { hidePersonalNumbers } from './privacy.js';
 import { UI_TEXT, UI_PATTERNS } from './ui-text.js';
-import { speak, stop as stopSpeaking, togglePause, speechSupported, isSpeaking, onSpeakingChange, onSpeechError } from './speech.js';
+import { speak, stop as stopSpeaking, togglePause, speechSupported, isSpeaking, onSpeakingChange, onSpeechError, onLoadingChange } from './speech.js';
 import { voiceSupported, listenInto, stopListening } from './voice.js';
 
 const screen = document.getElementById('screen');
@@ -329,6 +329,7 @@ const scanWords = (lang = scan.language) => SCAN_WORDS[lang] || SCAN_WORDS.en;
 const TYPE_WORDS = {
   en: {
     guess: (t) => `We think this is a ${t}. Is that right?`,
+    insurance: 'Insurance policy',
     readOriginal: 'Read the original clause', hideOriginal: 'Hide the original clause',
     looks: (sug, pick) => `This looks like a ${sug}, not a ${pick}.`,
     switchTo: (sug) => `Switch to ${sug}`, keep: (pick) => `Keep ${pick}`,
@@ -336,6 +337,7 @@ const TYPE_WORDS = {
   },
   zh: {
     guess: (t) => `我们认为这是${t}。对吗？`,
+    insurance: '保险单',
     readOriginal: '阅读原始条款', hideOriginal: '隐藏原始条款',
     looks: (sug, pick) => `这看起来像是${sug}，而不是${pick}。`,
     switchTo: (sug) => `改为${sug}`, keep: (pick) => `保留${pick}`,
@@ -343,6 +345,7 @@ const TYPE_WORDS = {
   },
   ms: {
     guess: (t) => `Kami fikir ini ialah ${t}. Betulkah?`,
+    insurance: 'Polisi insurans',
     readOriginal: 'Baca klausa asal', hideOriginal: 'Sembunyikan klausa asal',
     looks: (sug, pick) => `Ini kelihatan seperti ${sug}, bukan ${pick}.`,
     switchTo: (sug) => `Tukar kepada ${sug}`, keep: (pick) => `Kekalkan ${pick}`,
@@ -350,6 +353,7 @@ const TYPE_WORDS = {
   },
   ta: {
     guess: (t) => `இது ${t} என்று நினைக்கிறோம். சரியா?`,
+    insurance: 'காப்பீட்டுக் கொள்கை',
     readOriginal: 'அசல் பிரிவைப் படி', hideOriginal: 'அசல் பிரிவை மறை',
     looks: (sug, pick) => `இது ${sug} போல் தெரிகிறது, ${pick} அல்ல.`,
     switchTo: (sug) => `${sug} ஆக மாற்று`, keep: (pick) => `${pick} ஆக வைத்திரு`,
@@ -518,13 +522,14 @@ function detectedHtml() {
   if (!d) return '';
   const extra = [d.language && w.writtenIn(d.language), ...d.key_dates.map((k) => `${k.what}: ${k.date}`)].filter(Boolean);
   const unsure = !d.confident && !scan.typeTouched;
+  const insuranceLabel = d.insurance && effectiveType() === 'other' ? scanWords(scan.language) && typeWords(scan.language).insurance : null;
   const reason = d.reason ? `<span class="detected-reason">${escapeHtml(d.reason)}</span>` : '';
   return `
     ${typeCheckHtml()}
     <div class="detected" lang="${scan.language}">
       <span class="detected-icon">${icons.sparkle}</span>
       <span class="detected-body">
-        ${unsure ? '' : `<span class="detected-main">${escapeHtml(w.detected(w.types[effectiveType()] || w.types.other, d.other_party))} ·
+        ${unsure ? '' : `<span class="detected-main">${escapeHtml(w.detected(insuranceLabel || w.types[effectiveType()] || w.types.other, d.other_party))} ·
           <button class="link-btn" type="button" data-change-type>${escapeHtml(w.change)}</button></span>`}
         ${reason}
         ${extra.length ? `<span class="detected-extra">${escapeHtml(extra.join(' · '))}</span>` : ''}
@@ -802,7 +807,7 @@ async function submitScan() {
     setScanStatus(notice('info', 'Saving…'));
     const isPdf = Boolean(scan.file);
     const d = scan.detected;
-    const typeName = CONTRACT_TYPES.find((t) => t.id === effectiveType())?.label || 'Contract';
+    const typeName = scan.detected?.insurance && effectiveType() === 'other' ? typeWords(scan.language).insurance : (CONTRACT_TYPES.find((t) => t.id === effectiveType())?.label || 'Contract');
     // Only the masked text is sent. The original PDF or photos are not uploaded or kept.
     const { id } = await api('contracts', {
       method: 'POST',
@@ -1032,10 +1037,11 @@ function deadlineRows() {
   for (const r of contractsList || []) {
     (r.key_dates || []).forEach((kd, i) => {
       const text = kd.text || '';
-      const date = parseDayMonth(text);
+      const source = kd.source || text; // the English original: dates and kinds are read from it
+      const date = parseDayMonth(source);
       const days = date ? Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - today) / ONE_DAY) : null;
       if (days !== null && days < 0) return;
-      rows.push({ key: `${r.id}:${i}`, contractId: r.id, title: r.title, text, clause: kd.clauses?.[0] || '', kind: deadlineKind(text), date, days });
+      rows.push({ key: `${r.id}:${i}`, contractId: r.id, title: r.title, text, clause: kd.clauses?.[0] || '', kind: deadlineKind(source), date, days });
     });
   }
   return rows.sort((a, b) => (a.date && b.date ? a.date - b.date : a.date ? -1 : b.date ? 1 : 0));
@@ -2064,6 +2070,7 @@ function draftSection(c, asks) {
     <div class="card draft-card">
       <p class="draft-label">${icons.sparkle} ${escapeHtml(w.draftLabel)}</p>
       <textarea class="draft-text" id="draft-text" lang="en" rows="10" aria-label="${escapeHtml(w.draftLabel)}">${escapeHtml(d.message)}</textarea>
+      ${d.message_unchecked ? '<p class="draft-note">Check this part against the contract</p>' : ''}
       <div class="draft-status" id="draft-status" aria-live="polite"></div>
       <div class="draft-actions">
         <button class="btn btn-primary" type="button" data-copy-draft>${icons.doc} ${escapeHtml(w.copy)}</button>
@@ -2582,7 +2589,7 @@ function comicChoices(c, openNumber) {
   const add = (number, title, risky) => {
     if (!number || number === 'Intro' || seen.has(number)) return;
     seen.add(number);
-    list.push({ number, title: saved(number)?.title || title, risky });
+    list.push({ number, title: translateText(shellLang(), saved(number)?.title || title) || saved(number)?.title || title, risky });
   };
   const term = (key) => c.summary?.find((s) => s.key === key && s.found && s.clause_numbers.length);
 
@@ -2642,6 +2649,7 @@ function panelArt(c, panel, translatedSpeech, risk = 'none') {
     background: p.background,
     mei: { expression: PANEL_FACE[risk] || p.expression, outfit: MEI_OUTFIT[c.contract_type] || 'casual', holding: p.holding },
     sign: risk === 'none' ? null : risk,
+    dense: isDesktop(),
     other: p.character && p.character !== 'none' ? p.character : null,
     otherMood: p.character_mood || 'neutral',
     // Bubble text is drawn inside the picture, so apply "Hide these too" to it here.
@@ -3220,24 +3228,45 @@ async function toggleReadAloud() {
     return;
   }
   const { name, params } = parseRoute();
-  const c = name === 'contract' && contractCache.get(params[0]);
-  if (!c) return;
+  const c = name === 'contract' ? contractCache.get(params[0]) : null;
   const tab = params[1] || 'summary';
-  const content = readAloudContent(c, tab, params[2] && decodeURIComponent(params[2]));
-  if (!content?.texts.length) {
-    toast(tab === 'comic' ? 'Open a comic first, then tap the speaker.' : 'Nothing to read yet. Try again in a moment.');
+  let texts = [];
+  let lang = c?.language || scan.language || 'en';
+  if (c) {
+    const content = readAloudContent(c, tab, params[2] && decodeURIComponent(params[2]));
+    if (content?.texts.length) {
+      texts = content.texts;
+      lang = content.lang;
+    }
+  }
+  if (!texts.length) {
+    // Nothing saved for this screen yet: read what is on it, in the language shown.
+    const screenText = (document.querySelector('#tab-panel, .comic-body, .dt-page, .screen')?.innerText || '').replace(/\s+/g, ' ').trim();
+    if (screenText) texts = [screenText];
+  }
+  if (!texts.length) {
+    toast('There is nothing on this screen to read yet.');
     return;
   }
-  if (content.lang !== (c.language || 'en')) toast(`Still translating, so reading in English for now.`);
+  if (c && lang !== (c.language || 'en')) toast('Still translating, so reading in English for now.');
   try {
     // Read out the same hidden versions the screen shows.
-    await speak(content.texts.map((t) => (redactor ? redactor(t) : t)), content.lang);
+    await speak(texts.map((t) => (redactor ? redactor(t) : t)), lang);
   } catch (err) {
+    // Only when Azure failed and this device has no voice for the language.
     toast(err.message === 'no-voice'
-      ? `This device has no ${languageName(content.lang)} voice. You can add one in your phone's text-to-speech settings.`
-      : 'Read-aloud is not available in this browser.');
+      ? `This device has no ${languageName(lang)} voice. You can add one in your phone's text-to-speech settings.`
+      : 'Read-aloud is not available right now. Please try again.');
   }
 }
+
+// The speaker buttons show a loading state while the next audio part is being made.
+onLoadingChange((on) => {
+  document.querySelectorAll('#speak-btn, [data-dt-speak], [data-listen]').forEach((b) => {
+    b.classList.toggle('is-loading', on);
+    b.setAttribute('aria-busy', String(on));
+  });
+});
 
 onSpeakingChange((on) => {
   speakBtn.setAttribute('aria-pressed', String(on));
