@@ -2034,7 +2034,8 @@ html[data-layout="desktop"] .dt-side {
 /* ---------- Desktop: page, top bar, Back ---------- */
 
 .dt-page { max-width: 1480px; }
-.dt-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 22px; }
+.dt-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 22px; max-width: 100%; box-sizing: border-box; }
+.dt-top .view-switch { max-width: 100%; flex-wrap: wrap; justify-content: center; box-sizing: border-box; }
 .dt-lang {
   position: relative;
   display: inline-flex;
@@ -2509,3 +2510,25 @@ html[data-layout="desktop"] .help-chip { padding: 0 12px; }
 .dt-call .dt-help > span { background: #fff; box-shadow: none; color: #150E30; }
 .dt-call :focus-visible,
 .dt-banner :focus-visible { outline-color: #FFD54A; }
+
+/* ---------- Deadlines: every key date from the saved contracts (phone and desktop) ---------- */
+.dl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.dl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 16px; border: 1px solid #E3DCF7; border-radius: 18px; background: #fff; }
+.dl-date { display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; width: 66px; min-height: 66px; border-radius: 14px; background: #EDE6FF; color: #3A1B8F; text-align: center; }
+.dl-day { font-size: 22px; font-weight: 800; line-height: 1; }
+.dl-mon { margin-top: 4px; font-size: 12px; font-weight: 700; }
+.dl-main { display: flex; flex: 1 1 240px; flex-direction: column; gap: 4px; min-width: 0; }
+.dl-kind { align-self: flex-start; padding: 2px 9px; border-radius: 6px; background: #FFF3C4; color: #5C4300; font-size: 12px; font-weight: 800; }
+.dl-text { color: #150E30; font-size: 15px; line-height: 1.5; }
+.dl-meta { display: flex; flex-wrap: wrap; align-items: center; color: #4A4466; font-size: 13px; }
+.dl-contract { display: inline-flex; align-items: center; min-height: 44px; color: #5B33C4; font-weight: 700; text-decoration: none; }
+.dl-contract:hover { color: #3A1B8F; text-decoration: underline; }
+.dl-side { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: 8px; margin-left: auto; }
+.dl-days { color: #150E30; font-size: 14px; font-weight: 800; }
+.dl-soon { color: #8A1C1C; }
+.dl-ics { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid #B9A2FF; border-radius: 12px; background: #fff; color: #5B33C4; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.dl-ics svg { width: 18px; height: 18px; flex: none; }
+.dl-ics:hover:not(:disabled) { background: #F6F3FF; }
+.dl-ics:disabled { opacity: 0.5; cursor: not-allowed; }
+.dl-ics:focus-visible,
+.dl-contract:focus-visible { outline: 3px solid #6B3FD8; outline-offset: 2px; }

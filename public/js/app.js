@@ -863,17 +863,113 @@ async function renderContracts() {
 
 // ---------- Deadlines / Experts (Nice to Have, not in this version) ----------
 
+// Upcoming key dates from every saved contract, soonest first; undated ones last. The Deadlines
+// page and the sidebar badge both use this list, so their counts always match. Past dates are left out.
+const ONE_DAY = 86400000;
+const DEADLINE_KINDS = [
+  ['probation', /probation/i],
+  ['reply', /reply|respond|acceptance|accept |sign and return|return the signed|lapse/i],
+  ['start', /\bstart|commence|\bbegin/i],
+  ['notice', /notice/i],
+  ['pay', /\bpay|payment|\bdue\b|invoice|\bfee/i],
+  ['end', /\bend|expir|terminat|renew|finish|complete/i],
+];
+const deadlineKind = (text) => (DEADLINE_KINDS.find(([, re]) => re.test(text)) || ['other'])[0];
+
+function deadlineRows() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const rows = [];
+  for (const r of contractsList || []) {
+    (r.key_dates || []).forEach((kd, i) => {
+      const text = kd.text || '';
+      const date = parseDayMonth(text);
+      const days = date ? Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - today) / ONE_DAY) : null;
+      if (days !== null && days < 0) return;
+      rows.push({ key: `${r.id}:${i}`, contractId: r.id, title: r.title, text, clause: kd.clauses?.[0] || '', kind: deadlineKind(text), date, days });
+    });
+  }
+  return rows.sort((a, b) => (a.date && b.date ? a.date - b.date : a.date ? -1 : b.date ? 1 : 0));
+}
+
+// The rows as the Deadlines page shows them, so a row's "Add to calendar" knows its date.
+let deadlineRowsShown = [];
+const DL_LOCALE = { en: 'en-SG', zh: 'zh-CN', ms: 'ms-MY', ta: 'ta-IN' };
+
 function renderDeadlines() {
+  const lang = shellLang();
+  const L = dtLang(lang);
+  const w = dtWords(lang);
+  const d = w.deadlines;
+  const head = `<h1 class="${isDesktop() ? 'dt-inner-h1' : 'page-h1'}" lang="${L}">${esc(d.title)}</h1>`;
+  if (!contractsList) {
+    return `${head}${contractsListError ? notice('error', d.loadFailed) : '<div class="loading"><span class="spinner"></span></div>'}`;
+  }
+  deadlineRowsShown = deadlineRows();
+  if (!deadlineRowsShown.length) {
+    return `${head}${emptyState({
+      icon: icons.calendar,
+      title: esc(d.empty.title),
+      text: esc(d.empty.text),
+      action: `<a class="btn btn-primary" href="#/scan">${esc(d.empty.scan)}</a>`,
+    })}`;
+  }
+  return `${head}
+    <p class="page-sub" lang="${L}">${esc(d.sub)}</p>
+    <ol class="dl-list" lang="${L}">${deadlineRowsShown.map((r, i) => deadlineRowHtml(r, i, w, L)).join('')}</ol>`;
+}
+
+function deadlineRowHtml(r, i, w, L) {
+  const d = w.deadlines;
+  const locale = DL_LOCALE[L] || 'en-SG';
+  const dateCell = r.date
+    ? `<span class="dl-day">${r.date.getDate()}</span><span class="dl-mon">${esc(r.date.toLocaleDateString(locale, { month: 'short', year: 'numeric' }))}</span>
+       <span class="visually-hidden">${esc(r.date.toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' }))}</span>`
+    : `<span class="dl-day" aria-hidden="true">–</span><span class="visually-hidden">${esc(d.noDate)}</span>`;
+  const clause = r.clause ? (/^\d/.test(r.clause) ? `${d.clause} ${r.clause}` : r.clause) : '';
+  const days = r.days === null ? d.noDate : d.daysLeft(r.days);
+  const name = displayTitle(r.title);
   return `
-    <h1 class="page-h1">Deadlines</h1>
-    <p class="page-sub">Never get locked in or charged by surprise.</p>
-    ${darkBanner({ icon: icons.bell, eyebrow: 'Coming later', text: 'Deadline reminders aren\'t part of this version yet.' })}
-    ${emptyState({
-    icon: icons.calendar,
-    title: 'Find your dates in Overview',
-    text: 'Each contract\'s key dates, like when to reply and your start date, are under "Dates to note".',
-    action: '<a class="btn btn-secondary" href="#/contracts">Open my contracts</a>',
-  })}`;
+    <li class="dl-row">
+      <span class="dl-date">${dateCell}</span>
+      <span class="dl-main">
+        <span class="dl-kind">${esc(d.kinds[r.kind])}</span>
+        <span class="dl-text">${escapeHtml(r.text)}</span>
+        <span class="dl-meta"><a class="dl-contract" href="#/contract/${r.contractId}/summary">${escapeHtml(name)}</a>${clause ? `<span> · ${esc(clause)}</span>` : ''}</span>
+      </span>
+      <span class="dl-side">
+        <span class="dl-days${r.days !== null && r.days <= 7 ? ' dl-soon' : ''}">${esc(days)}</span>
+        <button class="dl-ics" type="button" data-ics="${i}" ${r.date ? '' : 'disabled'} aria-label="${esc(`${d.addCal}: ${d.kinds[r.kind]}, ${name}`)}">${icons.calendar}<span aria-hidden="true">${esc(d.addCal)}</span></button>
+      </span>
+    </li>`;
+}
+
+// One key date as an iCalendar (.ics) all-day event, for "Add to calendar".
+const icsEscape = (s) => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+function icsFor(r, w) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (x) => `${x.getFullYear()}${pad(x.getMonth() + 1)}${pad(x.getDate())}`;
+  const next = new Date(r.date.getFullYear(), r.date.getMonth(), r.date.getDate() + 1);
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const name = displayTitle(r.title);
+  const desc = [r.text, r.clause ? `${w.deadlines.clause} ${r.clause}` : '', name, 'ClauseWise SG explains contracts. It is not legal advice.'].filter(Boolean).join('\n');
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//ClauseWise SG//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+    `UID:${r.key}-${stamp}@clausewise`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${ymd(r.date)}`, `DTEND;VALUE=DATE:${ymd(next)}`,
+    `SUMMARY:${icsEscape(`${w.deadlines.kinds[r.kind]}: ${name}`)}`, `DESCRIPTION:${icsEscape(desc)}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+}
+
+function downloadIcs(i) {
+  const r = deadlineRowsShown[i];
+  if (!r?.date) return;
+  const blob = new Blob([icsFor(r, dtWords(shellLang()))], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `clausewise-${r.kind}-${r.date.getFullYear()}-${String(r.date.getMonth() + 1).padStart(2, '0')}-${String(r.date.getDate()).padStart(2, '0')}.ics`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function renderExperts() {
@@ -3059,6 +3155,8 @@ function setView(choice) {
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-view]');
   if (btn) setView(btn.dataset.view);
+  const ics = e.target.closest('[data-ics]');
+  if (ics) downloadIcs(Number(ics.dataset.ics));
 });
 
 // Every new label in the desktop layout, in each language the app explains in. Fixed wording, not
@@ -3066,6 +3164,13 @@ document.addEventListener('click', (e) => {
 const DT_WORDS = {
   en: {
     nav: { home: 'Home', scan: 'Scan a contract', contracts: 'My contracts', deadlines: 'Deadlines', experts: 'Get expert help' },
+    deadlines: {
+      title: 'Dates to note', sub: 'Key dates from all your saved contracts, soonest first.', clause: 'Clause',
+      kinds: { reply: 'Reply by', probation: 'Probation ends', start: 'Start date', notice: 'Notice deadline', pay: 'Payment due', end: 'Contract ends', other: 'Key date' },
+      daysLeft: (n) => (n === 0 ? 'Today' : n === 1 ? '1 day left' : `${n} days left`),
+      noDate: 'No date given', addCal: 'Add to calendar', loadFailed: 'We couldn\'t load your contracts just now.',
+      empty: { title: 'No dates yet', text: 'Key dates from your contracts, like when to reply and your start date, will show here after you scan one.', scan: 'Scan a contract' },
+    },
     mainNav: 'Main', homeLink: 'ClauseWise SG home',
     datesBadge: (n) => `${n} ${n === 1 ? 'date' : 'dates'} to note`,
     privateTitle: 'Private by design',
@@ -3133,6 +3238,13 @@ const DT_WORDS = {
   },
   zh: {
     nav: { home: '首页', scan: '扫描合同', contracts: '我的合同', deadlines: '截止日期', experts: '找专家帮忙' },
+    deadlines: {
+      title: '需要留意的日期', sub: '所有已保存合同中的重要日期，最近的排在前面。', clause: '条款',
+      kinds: { reply: '请在此前回复', probation: '试用期结束', start: '开始日期', notice: '通知截止', pay: '付款日期', end: '合同结束', other: '重要日期' },
+      daysLeft: (n) => (n === 0 ? '今天' : n === 1 ? '还剩 1 天' : `还剩 ${n} 天`),
+      noDate: '合同未写明日期', addCal: '添加到日历', loadFailed: '暂时无法读取你的合同。',
+      empty: { title: '还没有日期', text: '扫描合同后，合同中的重要日期（例如回复期限和开始日期）会显示在这里。', scan: '扫描合同' },
+    },
     mainNav: '主导航', homeLink: 'ClauseWise SG 首页',
     datesBadge: (n) => `${n} 个要注意的日期`,
     privateTitle: '隐私优先',
@@ -3196,6 +3308,13 @@ const DT_WORDS = {
   },
   ms: {
     nav: { home: 'Laman utama', scan: 'Imbas kontrak', contracts: 'Kontrak saya', deadlines: 'Tarikh akhir', experts: 'Dapatkan bantuan pakar' },
+    deadlines: {
+      title: 'Tarikh untuk diberi perhatian', sub: 'Tarikh penting daripada semua kontrak yang disimpan, yang paling dekat dahulu.', clause: 'Klausa',
+      kinds: { reply: 'Balas sebelum', probation: 'Tamat tempoh percubaan', start: 'Tarikh mula', notice: 'Tarikh akhir notis', pay: 'Tarikh bayaran', end: 'Kontrak tamat', other: 'Tarikh penting' },
+      daysLeft: (n) => (n === 0 ? 'Hari ini' : n === 1 ? '1 hari lagi' : `${n} hari lagi`),
+      noDate: 'Tiada tarikh diberi', addCal: 'Tambah ke kalendar', loadFailed: 'Kontrak anda tidak dapat dimuatkan buat masa ini.',
+      empty: { title: 'Tiada tarikh lagi', text: 'Tarikh penting daripada kontrak anda, seperti bila perlu membalas dan tarikh mula, akan dipaparkan di sini selepas anda imbas satu kontrak.', scan: 'Imbas kontrak' },
+    },
     mainNav: 'Utama', homeLink: 'Laman utama ClauseWise SG',
     datesBadge: (n) => `${n} tarikh untuk diingat`,
     privateTitle: 'Privasi diutamakan',
@@ -3259,6 +3378,13 @@ const DT_WORDS = {
   },
   ta: {
     nav: { home: 'முகப்பு', scan: 'ஒப்பந்தத்தை ஸ்கேன் செய்', contracts: 'என் ஒப்பந்தங்கள்', deadlines: 'காலக்கெடுகள்', experts: 'நிபுணர் உதவி பெறு' },
+    deadlines: {
+      title: 'கவனிக்க வேண்டிய தேதிகள்', sub: 'சேமித்த எல்லா ஒப்பந்தங்களின் முக்கிய தேதிகள், விரைவில் வருபவை முதலில்.', clause: 'பிரிவு',
+      kinds: { reply: 'பதில் அளிக்க வேண்டிய தேதி', probation: 'சோதனைக் காலம் முடிகிறது', start: 'தொடக்க தேதி', notice: 'அறிவிப்பு இறுதி நாள்', pay: 'பணம் செலுத்த வேண்டிய தேதி', end: 'ஒப்பந்தம் முடிகிறது', other: 'முக்கிய தேதி' },
+      daysLeft: (n) => (n === 0 ? 'இன்று' : n === 1 ? 'இன்னும் 1 நாள்' : `இன்னும் ${n} நாட்கள்`),
+      noDate: 'தேதி குறிப்பிடப்படவில்லை', addCal: 'நாட்காட்டியில் சேர்', loadFailed: 'உங்கள் ஒப்பந்தங்களை இப்போது ஏற்ற முடியவில்லை.',
+      empty: { title: 'இன்னும் தேதிகள் இல்லை', text: 'ஒப்பந்தத்தை ஸ்கேன் செய்த பிறகு, பதில் அளிக்க வேண்டிய நாள் மற்றும் தொடக்க தேதி போன்ற முக்கிய தேதிகள் இங்கே தோன்றும்.', scan: 'ஒப்பந்தத்தை ஸ்கேன் செய்' },
+    },
     mainNav: 'முதன்மை', homeLink: 'ClauseWise SG முகப்பு',
     datesBadge: (n) => `கவனிக்க ${n} தேதிகள்`,
     privateTitle: 'தனியுரிமை முதன்மை',
@@ -3377,6 +3503,11 @@ function loadContractsList() {
     .finally(() => {
       contractsListAt = Date.now();
       contractsListLoading = null;
+      // The Deadlines page waits for this list. Only redraw on success, so a failed load can't loop.
+      if (!contractsListError && parseRoute().name === 'deadlines') {
+        render();
+        return;
+      }
       if (!isDesktop()) return;
       renderSide();
       const recent = document.getElementById('dt-recent');
@@ -3398,7 +3529,7 @@ function renderSide() {
   const lang = shellLang();
   const w = dtWords(lang);
   const onContract = parseRoute().name === 'contract';
-  const dates = (contractsList || []).reduce((n, r) => n + (r.dates || 0), 0);
+  const dates = deadlineRows().length; // the same list the Deadlines page shows
   const link = (id, href, extra = '') => `
     <a href="${href}"${chrome.nav === id ? ' aria-current="page"' : ''}>${DT_ICONS[id]}<span>${esc(w.nav[id])}</span>${extra}</a>`;
   const badge = dates ? `<span class="dt-badge" aria-hidden="true">${dates}</span><span class="visually-hidden">, ${esc(w.datesBadge(dates))}</span>` : '';
@@ -4139,7 +4270,7 @@ async function render() {
   const routeKey = `${name}/${params[0] || ''}`;
   const isNewScreen = routeKey !== lastRouteKey;
   lastRouteKey = routeKey;
-  if (desk) loadContractsList();
+  loadContractsList(); // Recent contracts (desktop) and the Deadlines page both need the saved list
 
   // `full`: a desktop page drawn by the desktop layout itself; other screens are wrapped in it.
   const show = (html, full = false) => {
