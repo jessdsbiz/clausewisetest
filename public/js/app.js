@@ -1124,7 +1124,6 @@ function renderExperts() {
   return `
     <h1 class="page-h1">Experts</h1>
     <p class="page-sub">Talk to a real person about your contract.</p>
-    ${darkBanner({ icon: icons.person, eyebrow: 'Coming later', text: 'Chatting with a real expert isn\'t part of this version yet.' })}
     ${emptyState({
     icon: icons.chat,
     title: 'Big decision?',

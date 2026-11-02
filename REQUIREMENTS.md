@@ -204,3 +204,14 @@ Stored in Supabase: one `contracts` row per upload. The original file is not sto
 | `status` | text | `uploaded` / `processing` / `ready` / `error` |
 
 **Delete** removes the row, including all derived fields (and the Storage file, for older uploads that have one).
+
+## 4. Changes since the baseline (2026-11-03)
+
+- **Contract type:** confident answers are adopted and the buttons stay hidden until "Change". Unsure answers show the best guess with "We think this is a [type]. Is that right?" A short reason is shown under "Detected". Judged by content (see WHATS_NEW.md). A kept type shows a note with Switch; the full scam check always runs.
+- **Translation:** every label on every screen is translated into 中文, Bahasa Melayu and தமிழ். The contract's original text, company names, people's names, addresses and numbers are not translated.
+- **Comics:** speech and captions in the app font at 12px or more, regular weight, fitted in the bubble. Original clause hidden until asked. Mei's face and a sign follow each panel's risk. Panels record "risk" (high, medium, good or none); older comics fall back to the clause's risk.
+- **Voice input:** final results only, grey interim line, no repeated phrases, one phrase at a time on Android, a Stop button, editable text.
+- **Audio:** Azure AI Speech in all four languages, in short parts in order, with play/pause and caching. The device voice is used only if Azure fails. Keys are read on the server only (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION).
+- **Desktop:** Speak tab removed; "Tell us about you" always shown; View switch fits the top bar; Deadlines page with calendar export.
+- **Demo:** Agents at work hidden (FR11 not built); no "Coming later" banners; judge and demo links unchanged.
+- **Not built:** FR11 "Agents at work".
