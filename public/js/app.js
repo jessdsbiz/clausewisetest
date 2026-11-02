@@ -427,6 +427,18 @@ function detectedHtml() {
     </div>`;
 }
 
+// "Tell us about you" (PRD FR7), with its mic (FR9). Phone Home; desktop Home's start card.
+function situationFields(off, tag = 'h2') {
+  return `
+    <${tag} class="h2"><label for="situation-input">Tell us about you</label> <span class="h2-tag">Optional</span></${tag}>
+    <div class="voice-box">
+      <textarea class="situation-input" id="situation-input" maxlength="${SITUATION_MAX}" rows="3"
+        placeholder="${escapeHtml(SITUATION_HINT)}" aria-describedby="situation-note" ${off}>${escapeHtml(scan.situation)}</textarea>
+      ${micButton('situation-input', scan.language)}
+    </div>
+    <p class="situation-note" id="situation-note">${icons.lock} ${escapeHtml(SITUATION_NOTE)} We use your words to show what matters most for you.</p>`;
+}
+
 function renderHome() {
   const off = scan.busy ? 'disabled' : '';
   const photos = scan.pages.length > 0;
@@ -476,13 +488,7 @@ function renderHome() {
     <h2 class="h2" id="type-heading">What kind of contract?</h2>
     ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}
 
-    <h2 class="h2"><label for="situation-input">Tell us about you</label> <span class="h2-tag">Optional</span></h2>
-    <div class="voice-box">
-      <textarea class="situation-input" id="situation-input" maxlength="${SITUATION_MAX}" rows="3"
-        placeholder="${escapeHtml(SITUATION_HINT)}" aria-describedby="situation-note" ${off}>${escapeHtml(scan.situation)}</textarea>
-      ${micButton('situation-input', scan.language)}
-    </div>
-    <p class="situation-note" id="situation-note">${icons.lock} ${escapeHtml(SITUATION_NOTE)} We use your words to show what matters most for you.</p>
+    ${situationFields(off)}
 
     <div id="scan-status" aria-live="polite"></div>
     ${scan.stage === 'ready' ? `
@@ -710,6 +716,7 @@ async function submitScan() {
     resetUpload(); // the photos are dropped here
     scan.situation = '';
     scan.busy = false;
+    refreshContractsList();
     // First the "Personal details found" screen; its Continue button goes where "Explain it as"
     // says: Comic opens the comics, Plain words and Audio open the Overview.
     location.hash = `#/contract/${id}/personal/${scan.explainMode === 'comic' ? 'comic' : 'summary'}`;
@@ -724,6 +731,8 @@ screen.addEventListener('change', (e) => {
   const t = e.target;
   if (t.id === 'pdf-input') {
     choosePdf(t.files[0]);
+  } else if (t.id === 'dt-file-input') {
+    dtFiles([...t.files]);
   } else if (t.id === 'photo-input' || t.id === 'camera-input') {
     addPhotos(t.files);
   } else if (t.id === 'comic-clause' && t.value) {
@@ -911,7 +920,8 @@ function clauseQuotes(c, numbers) {
 let pointSeq = 0;
 function pointRow(c, { lead, title, sub, numbers, muted = false, after = '' }) {
   const tappable = numbers.length > 0;
-  const ref = tappable ? `${shortRef(numbers[0])}${numbers.length > 1 ? ` +${numbers.length - 1}` : ''}` : '';
+  const desk = isDesktop();
+  const ref = tappable ? `${desk ? dtRef(numbers[0]) : shortRef(numbers[0])}${numbers.length > 1 ? ` +${numbers.length - 1}` : ''}` : '';
   const id = `pt-${++pointSeq}`;
   // The clause reference sits beside the title so the explanation can use the full width.
   const inner = `
@@ -923,6 +933,14 @@ function pointRow(c, { lead, title, sub, numbers, muted = false, after = '' }) {
       </span>
       ${sub ? `<span class="point-sub">${sub}</span>` : ''}
     </span>`;
+  // Desktop: the clause is shown in the "Original contract" panel beside the list instead.
+  if (desk && tappable) {
+    return `
+    <li class="point${muted ? ' point-muted' : ''}">
+      <button class="point-row" type="button" data-dt-clause="${escapeHtml(numbers.join('|'))}" aria-controls="dt-clauses">${inner}</button>
+      ${after}
+    </li>`;
+  }
   return `
     <li class="point${muted ? ' point-muted' : ''}">
       ${tappable
@@ -1062,13 +1080,16 @@ function retryButton(field) {
 }
 
 function renderSummary(c) {
-  const banner = `<div id="risk-banner">${riskBanner(c)}</div>`;
+  // Desktop: the violet banner, the "Original contract" panel and the right column show the scam
+  // check, the clauses and the plan, so they aren't repeated here.
+  const desk = isDesktop();
+  const banner = desk ? '' : `<div id="risk-banner">${riskBanner(c)}</div>`;
   if (c.summaryError) {
     return `
       ${banner}
       ${notice('error', c.summaryError)}
       ${retryButton('summary')}
-      ${fullText(c)}`;
+      ${desk ? '' : fullText(c)}`;
   }
   // Nothing is shown until the final, double-checked answer is ready (PRD FR10).
   const waiting = waitingCard(c, 'summary');
@@ -1120,19 +1141,21 @@ function renderSummary(c) {
       <h2 class="h2">Dates to note</h2>
       <ul class="list-card">${dates.map(dateRow).join('')}</ul>` : ''}
 
-    <div id="plan-slot">${planSection(c)}</div>
+    ${desk ? '' : `<div id="plan-slot">${planSection(c)}</div>`}
 
-    ${c.risks ? decideCard(c) : ''}
+    ${c.risks && !desk ? decideCard(c) : ''}
 
     ${behindScenes(c)}
 
-    ${fullText(c)}
+    ${desk ? '' : fullText(c)}
 
-    <p class="tab-foot">Tap any point to see the original clause. Made by AI from your contract.</p>
+    ${desk
+    ? `<p class="tab-foot" lang="${dtLang(c.language)}">${esc(dtWords(c.language).clickHint)} ${esc(dtWords(c.language).aiMade)}</p>`
+    : '<p class="tab-foot">Tap any point to see the original clause. Made by AI from your contract.</p>'}
 
     <button class="btn btn-danger-ghost btn-block" type="button" data-delete="${c.id}">${icons.trash} Delete this contract</button>
 
-    <a class="fab" href="#/contract/${c.id}/ask">${icons.sparkle} Ask AI</a>`;
+    ${desk ? '' : `<a class="fab" href="#/contract/${c.id}/ask">${icons.sparkle} Ask AI</a>`}`;
 }
 
 // ---------- Your situation (PRD FR7) ----------
@@ -1533,6 +1556,7 @@ async function loadCheck(c) {
   const show = (state) => {
     if (c.final) return;
     c.final = state;
+    refreshContractsList(); // the status and dates on desktop Home change now
     const { name, params } = parseRoute();
     if (name === 'contract' && params[0] === c.id) render();
   };
@@ -2587,6 +2611,11 @@ async function sendQuestion(c, typed) {
 }
 
 function scrollChatToEnd() {
+  // Desktop: the chat is in the middle column, so bring its question box into view.
+  if (isDesktop()) {
+    document.getElementById('ask-form')?.scrollIntoView({ block: 'nearest' });
+    return;
+  }
   window.scrollTo(0, document.documentElement.scrollHeight);
 }
 
@@ -2701,6 +2730,14 @@ const TAB_TITLES = {
   ask: 'ClauseWise SG AI',
 };
 
+// Summary / Risks / Comic / Ask (both layouts).
+function contractTabs(c, tab) {
+  return CONTRACT_TABS.map((t) => `
+    <button class="tab" role="tab" type="button" id="tab-${t.id}"
+      aria-selected="${t.id === tab}" aria-controls="tab-panel"
+      data-tab="${t.id}">${t.label}${t.id === 'risks' ? riskTabDot(c) : ''}</button>`).join('');
+}
+
 function renderContract(c, tab, openClause = null) {
   // The summary and the risk check are made at the same time (each is its own function call), so
   // the final answer is ready sooner.
@@ -2711,10 +2748,7 @@ function renderContract(c, tab, openClause = null) {
   // Then the two AIs double-check it all (PRD FR10).
   if (c.summary && c.risks && (c.tailored || c.tailoredError) && !finalState(c)) loadCheck(c);
 
-  const tabsHtml = CONTRACT_TABS.map((t) => `
-    <button class="tab" role="tab" type="button" id="tab-${t.id}"
-      aria-selected="${t.id === tab}" aria-controls="tab-panel"
-      data-tab="${t.id}">${t.label}${t.id === 'risks' ? riskTabDot(c) : ''}</button>`).join('');
+  const tabsHtml = contractTabs(c, tab);
 
   let body;
   if (tab === 'summary') {
@@ -2763,6 +2797,10 @@ async function deleteContract(id, button) {
   try {
     await api(`contracts?id=${encodeURIComponent(id)}`, { method: 'DELETE', what: 'deleting the contract' });
     contractCache.delete(id);
+    refreshContractsList();
+    try {
+      localStorage.removeItem(`clausewise-plan-done:${id}`);
+    } catch { /* nothing kept */ }
     stopSpeaking();
     flash = 'Contract deleted.';
     if (location.hash === '#/contracts') render();
@@ -2790,6 +2828,7 @@ const languageName = (id) => LANGUAGES.find((l) => l.id === id)?.name || 'Englis
 function openLanguageSheet() {
   const c = contractCache.get(parseRoute().params[0]);
   if (!c) return;
+  const opener = document.activeElement; // the header's globe, or the desktop language button
   const sheet = document.createElement('div');
   sheet.className = 'sheet-backdrop';
   sheet.id = 'lang-sheet';
@@ -2808,7 +2847,7 @@ function openLanguageSheet() {
     </div>`;
   const close = () => {
     sheet.remove();
-    langBtn.focus();
+    (opener?.isConnected ? opener : langBtn).focus();
   };
   sheet.addEventListener('click', (e) => {
     const option = e.target.closest('.lang-option');
@@ -2914,6 +2953,11 @@ onSpeakingChange((on) => {
   document.querySelectorAll('[data-listen]').forEach((b) => {
     b.innerHTML = on ? `${icons.stopSquare} Stop reading` : `${icons.play} Listen to this summary`;
   });
+  document.querySelectorAll('[data-dt-speak]').forEach((b) => {
+    const w = dtWords(shellLang());
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', on ? w.stopReading : w.readAloud);
+  });
 });
 
 onSpeechError((code) => toast(`Read-aloud stopped (${code}). Check your volume and try again.`));
@@ -2968,6 +3012,1088 @@ function languageNote(c, part) {
   return `<p class="lang-note"><span class="spinner" aria-hidden="true"></span> Translating into ${escapeHtml(label)}… showing English until it's ready</p>`;
 }
 
+// ---------- Desktop layout (screens 1024px and wider) ----------
+// Follows mockup/desktop/desktop-home.html and desktop-contract.html, with the app's real data.
+// On narrow screens none of this is used, so the phone layout is unchanged. On wide screens the
+// "View: Auto · Phone · Desktop" switch picks the layout: Auto and Desktop show this one, Phone
+// shows the phone layout in a phone-sized frame.
+
+const VIEW_KEY = 'clausewise-view';
+const VIEWS = ['auto', 'phone', 'desktop'];
+let viewChoice = 'auto';
+try {
+  const saved = localStorage.getItem(VIEW_KEY);
+  if (VIEWS.includes(saved)) viewChoice = saved;
+} catch { /* storage blocked: Auto */ }
+
+const wideScreen = window.matchMedia('(min-width: 1024px)');
+// 'phone' (narrow screen), 'frame' (wide screen, Phone chosen) or 'desktop'.
+let layout = 'phone';
+function applyLayout() {
+  layout = !wideScreen.matches ? 'phone' : viewChoice === 'phone' ? 'frame' : 'desktop';
+  document.documentElement.dataset.layout = layout;
+}
+function isDesktop() {
+  return layout === 'desktop';
+}
+applyLayout();
+wideScreen.addEventListener('change', () => {
+  const before = layout;
+  applyLayout();
+  if (layout !== before) render();
+});
+
+function setView(choice) {
+  if (!VIEWS.includes(choice)) return;
+  viewChoice = choice;
+  try {
+    localStorage.setItem(VIEW_KEY, choice);
+  } catch { /* not remembered, but still used now */ }
+  applyLayout();
+  render().then(() => {
+    // The switch moves between the desktop top bar and the bar above the phone frame: keep focus on it.
+    [...document.querySelectorAll(`[data-view="${choice}"]`)].find((b) => b.offsetParent)?.focus();
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-view]');
+  if (btn) setView(btn.dataset.view);
+});
+
+// Every new label in the desktop layout, in each language the app explains in. Fixed wording, not
+// AI. (Tamil still needs a native speaker's check, like the other Tamil text.)
+const DT_WORDS = {
+  en: {
+    nav: { home: 'Home', scan: 'Scan a contract', contracts: 'My contracts', deadlines: 'Deadlines', experts: 'Get expert help' },
+    mainNav: 'Main', homeLink: 'ClauseWise SG home',
+    datesBadge: (n) => `${n} ${n === 1 ? 'date' : 'dates'} to note`,
+    privateTitle: 'Private by design',
+    privateItems: ['NRIC and bank numbers hidden', 'Photos deleted after reading', 'Delete your contract anytime'],
+    scamTitle: 'Think it\'s a scam?', scamText: 'Call the ScamShield Helpline before you pay anything.', scamCall: 'Call ScamShield, 1799',
+    view: 'View', views: { auto: 'Auto', phone: 'Phone', desktop: 'Desktop' },
+    language: 'Language for explanations', back: 'Back',
+    gotContract: 'Got a contract?', h1: ['Understand', 'before you ', 'sign.'],
+    intro: 'Snap any contract. Get it in plain words, as a comic or read aloud in 4 languages, with scam signs flagged before you sign.',
+    artHigh: 'High', artText: 'You must pay before you start.', artFoot: 'Checked twice',
+    startTitle: 'Start with your contract', startTabs: 'How do you want to add your contract?',
+    tabs: { pdf: 'Upload PDF', photos: 'Take photos', speak: 'Speak' },
+    dropTitle: 'Drop your contract here', dropSub: 'or click to choose · PDF, JPG or PNG · many pages are fine',
+    photoTitle: 'Add a photo of each page', photoSub: 'or drop them here · JPG or PNG · up to 20 pages',
+    nricPill: 'Cover your NRIC before you scan',
+    speakTitle: 'Tell us about you, out loud',
+    speakSub: 'Tap the mic and speak in English, 中文, BM or தமிழ். We use your words to show what matters most for you.',
+    speakNext: 'Then add your contract with Upload PDF or Take photos.',
+    noVoice: 'Voice input doesn\'t work in this browser. Type here instead, or try Chrome or Edge.',
+    wrongFile: 'Please choose a PDF or photos (JPG or PNG).',
+    canDo: ['Before you sign, ', 'ClauseWise it.'],
+    sdgs: [['SDG 8', 'Decent work'], ['SDG 10', 'Reduced inequalities'], ['SDG 16', 'Access to justice']],
+    bento: [
+      ['01 · Plain words', 'Legal terms, explained like a friend would.', 'Read it, see it as a comic, or listen in English, 中文, BM or தமிழ்.'],
+      ['02', 'Checked twice', 'Scam signs flagged, then checked by a second AI.'],
+      ['03', 'Tailored to you', 'Tell us your situation and get a plan that fits it.'],
+      ['04', 'Approved by you', 'AI prepares your next steps and a draft message. You make the call.'],
+      ['05', 'No typing', 'Snap your pages or speak. AI reads them for you.'],
+    ],
+    askTitle: 'Ask ClauseWise', askSub: 'Answers from your contract only',
+    askHi: 'Hi! I explain contracts and point out what to check. What would you like to do?',
+    askQs: ['Explain my contract', 'Is this a scam?', 'Find important dates', 'What if I leave early?'],
+    askPlaceholder: 'Ask anything…', askLabel: 'Ask a question about your contract', send: 'Send', askAbout: 'About',
+    askNone: 'Scan a contract first. Then ask anything about it here.',
+    recent: 'Recent contracts', viewAll: 'View all',
+    recentNone: 'No contracts yet. Contracts you scan will show here.', recentFailed: 'We couldn\'t load your contracts. Open My contracts to try again.',
+    status: {
+      scam: (n) => `${n} possible scam ${n === 1 ? 'sign' : 'signs'}`,
+      check: (n) => `${n} ${n === 1 ? 'thing' : 'things'} to check`,
+      clear: 'No warning signs found', notYet: 'Not checked yet',
+    },
+    scamFoot: 'Think it\'s a scam? Call ScamShield',
+    crumb: 'Breadcrumb', situation: 'Your situation', personal: 'Personal details',
+    readAloud: 'Read aloud', stopReading: 'Stop reading', changeLang: 'Change language', comic: 'See it as a comic',
+    glance: 'At a glance', toReply: 'to reply', units: { h: 'h', d: 'd', w: 'w' },
+    dontPay: 'Don\'t pay anything yet',
+    scamHead: (n) => `${n} possible scam ${n === 1 ? 'sign' : 'signs'} in this contract`,
+    checkHead: (n) => `${n} ${n === 1 ? 'thing' : 'things'} worth checking`,
+    noneHead: 'We didn\'t find the warning signs we check for',
+    riskFailed: 'The risk check didn\'t finish. Open Risks to try again.',
+    bannerNote: 'Warning signs, not a final verdict. Check each one before you sign or send money.',
+    noneNote: 'This isn\'t a final verdict. Read the contract, and ask an expert if anything is unclear.',
+    stats: { clauses: 'clauses read', check: 'things to check', steps: 'steps in your plan' },
+    original: 'Original contract', clauses: (n) => `${n} ${n === 1 ? 'clause' : 'clauses'}`,
+    viewing: 'You\'re viewing this clause', showing: (l) => `Showing ${l} in the original contract`,
+    clickHint: 'Click a point to see its clause in the original contract.', aiMade: 'Made by AI from your contract.',
+    plainWords: 'Plain words',
+    planTitle: 'Your plan before you sign', planOf: (d, n) => `${d} of ${n}`,
+    markDone: (i) => `Step ${i}: mark as done`, planMaking: 'Making your plan…',
+    planNone: 'We couldn\'t make steps we could check against your contract.',
+    editAbout: 'Edit about you', onlyContract: ['Based on the contract only. ', 'Tell us about you', ' for a plan that fits you.'],
+    sidePanel: 'Your plan and next steps',
+    finalSay: 'The final say', call: ['You make ', 'the call.'], callText: 'ClauseWise SG points out what to check. The choice is yours.',
+    notLegal: 'ClauseWise SG explains contracts. It is not legal advice.',
+  },
+  zh: {
+    nav: { home: '首页', scan: '扫描合同', contracts: '我的合同', deadlines: '截止日期', experts: '找专家帮忙' },
+    mainNav: '主导航', homeLink: 'ClauseWise SG 首页',
+    datesBadge: (n) => `${n} 个要注意的日期`,
+    privateTitle: '隐私优先',
+    privateItems: ['NRIC 和银行账号会被隐藏', '照片读取后即删除', '随时可以删除你的合同'],
+    scamTitle: '怀疑是诈骗？', scamText: '付任何钱之前，先打 ScamShield 热线。', scamCall: '拨打 ScamShield 1799',
+    view: '显示', views: { auto: '自动', phone: '手机', desktop: '电脑' },
+    language: '解释所用的语言', back: '返回',
+    gotContract: '有合同要签？', h1: ['签约之前，', '先', '看懂。'],
+    intro: '拍下任何合同，就能看到白话解释、漫画或朗读，支持 4 种语言，签约前还会标出诈骗迹象。',
+    artHigh: '高', artText: '要你先付钱才能开始。', artFoot: '已检查两次',
+    startTitle: '从你的合同开始', startTabs: '你想怎样添加合同？',
+    tabs: { pdf: '上传 PDF', photos: '拍照', speak: '说话' },
+    dropTitle: '把合同拖到这里', dropSub: '或点击选择 · PDF、JPG 或 PNG · 多页也可以',
+    photoTitle: '为每一页添加照片', photoSub: '或拖到这里 · JPG 或 PNG · 最多 20 页',
+    nricPill: '扫描前请遮住你的 NRIC',
+    speakTitle: '用说话告诉我们你的情况',
+    speakSub: '点麦克风，用英文、中文、马来文或淡米尔文说话。我们会根据你的话，先显示对你最重要的内容。',
+    speakNext: '然后用“上传 PDF”或“拍照”添加你的合同。',
+    noVoice: '这个浏览器不支持语音输入。请在这里打字，或改用 Chrome 或 Edge。',
+    wrongFile: '请选择 PDF 或照片（JPG 或 PNG）。',
+    canDo: ['签约之前，', '先用 ClauseWise 看看。'],
+    sdgs: [['SDG 8', '体面工作'], ['SDG 10', '减少不平等'], ['SDG 16', '公正司法']],
+    bento: [
+      ['01 · 白话解释', '法律条款，像朋友一样讲给你听。', '可以阅读、看漫画，或用英文、中文、马来文、淡米尔文收听。'],
+      ['02', '已检查两次', '先标出诈骗迹象，再由第二个 AI 复查。'],
+      ['03', '为你定制', '告诉我们你的情况，得到适合你的计划。'],
+      ['04', '由你决定', 'AI 帮你准备下一步和草稿信息，由你做决定。'],
+      ['05', '不用打字', '拍下页面或直接说话，AI 帮你读。'],
+    ],
+    askTitle: '问 ClauseWise', askSub: '只根据你的合同回答',
+    askHi: '你好！我会解释合同，并指出需要检查的地方。你想做什么？',
+    askQs: ['解释我的合同', '这是诈骗吗？', '找出重要日期', '如果我提前离开会怎样？'],
+    askPlaceholder: '问任何问题…', askLabel: '问一个关于你合同的问题', send: '发送', askAbout: '关于',
+    askNone: '请先扫描一份合同，然后就可以在这里提问。',
+    recent: '最近的合同', viewAll: '查看全部',
+    recentNone: '还没有合同。你扫描的合同会显示在这里。', recentFailed: '无法载入你的合同。请打开“我的合同”再试一次。',
+    status: { scam: (n) => `${n} 个可能的诈骗迹象`, check: (n) => `${n} 项需要检查`, clear: '没有发现警告迹象', notYet: '还没检查' },
+    scamFoot: '怀疑是诈骗？请打 ScamShield',
+    crumb: '路径', situation: '你的情况', personal: '个人资料',
+    readAloud: '朗读', stopReading: '停止朗读', changeLang: '更改语言', comic: '用漫画看',
+    glance: '一览', toReply: '内回复', units: { h: '小时', d: '天', w: '周' },
+    dontPay: '先不要付任何钱',
+    scamHead: (n) => `这份合同有 ${n} 个可能的诈骗迹象`,
+    checkHead: (n) => `${n} 项值得检查`,
+    noneHead: '没有发现我们检查的警告迹象',
+    riskFailed: '风险检查没有完成。请打开“风险”再试一次。',
+    bannerNote: '这些是警告迹象，不是最终结论。签约或付钱之前，请逐一核实。',
+    noneNote: '这不是最终结论。请阅读合同，有不清楚的地方请咨询专家。',
+    stats: { clauses: '条条款已读', check: '项需要检查', steps: '个计划步骤' },
+    original: '合同原文', clauses: (n) => `${n} 条条款`,
+    viewing: '你正在看这一条', showing: (l) => `已在合同原文中显示 ${l}`,
+    clickHint: '点击任何一点，就能在合同原文中看到它的条款。', aiMade: '由 AI 根据你的合同生成。',
+    plainWords: '白话解释',
+    planTitle: '签约前的计划', planOf: (d, n) => `${d} / ${n}`,
+    markDone: (i) => `第 ${i} 步：标记为完成`, planMaking: '正在制定你的计划…',
+    planNone: '我们无法制定能根据你的合同核实的步骤。',
+    editAbout: '修改你的情况', onlyContract: ['只根据合同制定。', '告诉我们你的情况', '，就能得到适合你的计划。'],
+    sidePanel: '你的计划和下一步',
+    finalSay: '最终决定', call: ['由你', '做决定。'], callText: 'ClauseWise SG 指出需要检查的地方，决定权在你。',
+    notLegal: 'ClauseWise SG 解释合同，这不是法律意见。',
+  },
+  ms: {
+    nav: { home: 'Laman utama', scan: 'Imbas kontrak', contracts: 'Kontrak saya', deadlines: 'Tarikh akhir', experts: 'Dapatkan bantuan pakar' },
+    mainNav: 'Utama', homeLink: 'Laman utama ClauseWise SG',
+    datesBadge: (n) => `${n} tarikh untuk diingat`,
+    privateTitle: 'Privasi diutamakan',
+    privateItems: ['NRIC dan nombor bank disembunyikan', 'Gambar dipadam selepas dibaca', 'Padam kontrak anda bila-bila masa'],
+    scamTitle: 'Rasa ini penipuan?', scamText: 'Hubungi Talian ScamShield sebelum anda membayar apa-apa.', scamCall: 'Hubungi ScamShield, 1799',
+    view: 'Paparan', views: { auto: 'Auto', phone: 'Telefon', desktop: 'Desktop' },
+    language: 'Bahasa untuk penerangan', back: 'Kembali',
+    gotContract: 'Ada kontrak?', h1: ['Fahami', 'sebelum anda ', 'tandatangan.'],
+    intro: 'Ambil gambar mana-mana kontrak. Dapatkan penerangan dalam bahasa mudah, sebagai komik atau dibacakan dalam 4 bahasa, dengan tanda penipuan ditunjukkan sebelum anda menandatangani.',
+    artHigh: 'Tinggi', artText: 'Anda perlu membayar sebelum mula.', artFoot: 'Disemak dua kali',
+    startTitle: 'Mulakan dengan kontrak anda', startTabs: 'Bagaimana anda mahu menambah kontrak anda?',
+    tabs: { pdf: 'Muat naik PDF', photos: 'Ambil gambar', speak: 'Bercakap' },
+    dropTitle: 'Letakkan kontrak anda di sini', dropSub: 'atau klik untuk memilih · PDF, JPG atau PNG · banyak halaman pun boleh',
+    photoTitle: 'Tambah gambar setiap halaman', photoSub: 'atau letakkan di sini · JPG atau PNG · sehingga 20 halaman',
+    nricPill: 'Tutup NRIC anda sebelum mengimbas',
+    speakTitle: 'Ceritakan tentang diri anda dengan suara',
+    speakSub: 'Tekan mikrofon dan bercakap dalam English, 中文, BM atau தமிழ். Kami guna kata-kata anda untuk menunjukkan perkara yang paling penting bagi anda.',
+    speakNext: 'Kemudian tambah kontrak anda dengan Muat naik PDF atau Ambil gambar.',
+    noVoice: 'Input suara tidak berfungsi dalam pelayar ini. Taip di sini, atau cuba Chrome atau Edge.',
+    wrongFile: 'Sila pilih PDF atau gambar (JPG atau PNG).',
+    canDo: ['Sebelum tandatangan, ', 'ClauseWise dahulu.'],
+    sdgs: [['SDG 8', 'Pekerjaan yang wajar'], ['SDG 10', 'Kurangkan ketidaksamaan'], ['SDG 16', 'Akses kepada keadilan']],
+    bento: [
+      ['01 · Bahasa mudah', 'Istilah undang-undang, diterangkan seperti seorang kawan.', 'Baca, lihat sebagai komik, atau dengar dalam English, 中文, BM atau தமிழ்.'],
+      ['02', 'Disemak dua kali', 'Tanda penipuan ditunjukkan, kemudian disemak oleh AI kedua.'],
+      ['03', 'Disesuaikan untuk anda', 'Ceritakan keadaan anda dan dapatkan pelan yang sesuai.'],
+      ['04', 'Diluluskan oleh anda', 'AI menyediakan langkah seterusnya dan draf mesej. Anda yang buat keputusan.'],
+      ['05', 'Tanpa menaip', 'Ambil gambar halaman atau bercakap. AI membacanya untuk anda.'],
+    ],
+    askTitle: 'Tanya ClauseWise', askSub: 'Jawapan daripada kontrak anda sahaja',
+    askHi: 'Hai! Saya menerangkan kontrak dan menunjukkan perkara yang perlu disemak. Apa yang anda mahu lakukan?',
+    askQs: ['Terangkan kontrak saya', 'Adakah ini penipuan?', 'Cari tarikh penting', 'Bagaimana jika saya berhenti awal?'],
+    askPlaceholder: 'Tanya apa sahaja…', askLabel: 'Tanya soalan tentang kontrak anda', send: 'Hantar', askAbout: 'Tentang',
+    askNone: 'Imbas kontrak dahulu. Kemudian tanya apa sahaja tentangnya di sini.',
+    recent: 'Kontrak terkini', viewAll: 'Lihat semua',
+    recentNone: 'Belum ada kontrak. Kontrak yang anda imbas akan dipaparkan di sini.', recentFailed: 'Kami tidak dapat memuatkan kontrak anda. Buka Kontrak saya untuk cuba lagi.',
+    status: { scam: (n) => `${n} kemungkinan tanda penipuan`, check: (n) => `${n} perkara untuk disemak`, clear: 'Tiada tanda amaran ditemui', notYet: 'Belum disemak' },
+    scamFoot: 'Rasa ini penipuan? Hubungi ScamShield',
+    crumb: 'Laluan', situation: 'Keadaan anda', personal: 'Butiran peribadi',
+    readAloud: 'Bacakan', stopReading: 'Berhenti membaca', changeLang: 'Tukar bahasa', comic: 'Lihat sebagai komik',
+    glance: 'Ringkasan', toReply: 'untuk membalas', units: { h: 'j', d: 'h', w: 'mg' },
+    dontPay: 'Jangan bayar apa-apa dahulu',
+    scamHead: (n) => `${n} kemungkinan tanda penipuan dalam kontrak ini`,
+    checkHead: (n) => `${n} perkara yang patut disemak`,
+    noneHead: 'Kami tidak menemui tanda amaran yang kami semak',
+    riskFailed: 'Semakan risiko tidak selesai. Buka Risiko untuk cuba lagi.',
+    bannerNote: 'Ini tanda amaran, bukan keputusan muktamad. Semak setiap satu sebelum anda menandatangani atau menghantar wang.',
+    noneNote: 'Ini bukan keputusan muktamad. Baca kontrak, dan tanya pakar jika ada yang tidak jelas.',
+    stats: { clauses: 'fasal dibaca', check: 'perkara untuk disemak', steps: 'langkah dalam pelan anda' },
+    original: 'Kontrak asal', clauses: (n) => `${n} fasal`,
+    viewing: 'Anda sedang melihat fasal ini', showing: (l) => `Menunjukkan ${l} dalam kontrak asal`,
+    clickHint: 'Klik mana-mana perkara untuk melihat fasalnya dalam kontrak asal.', aiMade: 'Dibuat oleh AI daripada kontrak anda.',
+    plainWords: 'Bahasa mudah',
+    planTitle: 'Pelan anda sebelum menandatangani', planOf: (d, n) => `${d} daripada ${n}`,
+    markDone: (i) => `Langkah ${i}: tandakan selesai`, planMaking: 'Sedang menyediakan pelan anda…',
+    planNone: 'Kami tidak dapat membuat langkah yang boleh disemak dengan kontrak anda.',
+    editAbout: 'Ubah tentang anda', onlyContract: ['Berdasarkan kontrak sahaja. ', 'Ceritakan tentang diri anda', ' untuk pelan yang sesuai dengan anda.'],
+    sidePanel: 'Pelan dan langkah seterusnya',
+    finalSay: 'Keputusan akhir', call: ['Anda yang ', 'buat keputusan.'], callText: 'ClauseWise SG menunjukkan perkara yang perlu disemak. Pilihan di tangan anda.',
+    notLegal: 'ClauseWise SG menerangkan kontrak. Ia bukan nasihat undang-undang.',
+  },
+  ta: {
+    nav: { home: 'முகப்பு', scan: 'ஒப்பந்தத்தை ஸ்கேன் செய்', contracts: 'என் ஒப்பந்தங்கள்', deadlines: 'காலக்கெடுகள்', experts: 'நிபுணர் உதவி பெறு' },
+    mainNav: 'முதன்மை', homeLink: 'ClauseWise SG முகப்பு',
+    datesBadge: (n) => `கவனிக்க ${n} தேதிகள்`,
+    privateTitle: 'தனியுரிமை முதன்மை',
+    privateItems: ['NRIC மற்றும் வங்கி எண்கள் மறைக்கப்படும்', 'படித்த பின் படங்கள் நீக்கப்படும்', 'எப்போது வேண்டுமானாலும் உங்கள் ஒப்பந்தத்தை நீக்கலாம்'],
+    scamTitle: 'மோசடி என்று சந்தேகமா?', scamText: 'எதையும் செலுத்தும் முன் ScamShield உதவி எண்ணை அழைக்கவும்.', scamCall: 'ScamShield 1799 ஐ அழை',
+    view: 'காட்சி', views: { auto: 'தானியங்கி', phone: 'கைபேசி', desktop: 'கணினி' },
+    language: 'விளக்கத்தின் மொழி', back: 'பின்செல்',
+    gotContract: 'ஒப்பந்தம் வந்ததா?', h1: ['கையெழுத்திடும் முன்', '', 'புரிந்துகொள்ளுங்கள்.'],
+    intro: 'எந்த ஒப்பந்தத்தையும் படம் எடுங்கள். எளிய வார்த்தைகளில், காமிக்காக அல்லது 4 மொழிகளில் சத்தமாகக் கேட்கலாம்; கையெழுத்திடும் முன் மோசடி அறிகுறிகள் சுட்டிக்காட்டப்படும்.',
+    artHigh: 'அதிகம்', artText: 'தொடங்கும் முன் பணம் செலுத்த வேண்டும்.', artFoot: 'இருமுறை சரிபார்க்கப்பட்டது',
+    startTitle: 'உங்கள் ஒப்பந்தத்துடன் தொடங்குங்கள்', startTabs: 'உங்கள் ஒப்பந்தத்தை எப்படிச் சேர்க்க விரும்புகிறீர்கள்?',
+    tabs: { pdf: 'PDF பதிவேற்று', photos: 'படம் எடு', speak: 'பேசு' },
+    dropTitle: 'உங்கள் ஒப்பந்தத்தை இங்கே விடுங்கள்', dropSub: 'அல்லது தேர்ந்தெடுக்கக் கிளிக் செய்யுங்கள் · PDF, JPG அல்லது PNG · பல பக்கங்களும் சரி',
+    photoTitle: 'ஒவ்வொரு பக்கத்தின் படத்தையும் சேர்க்கவும்', photoSub: 'அல்லது இங்கே விடுங்கள் · JPG அல்லது PNG · 20 பக்கங்கள் வரை',
+    nricPill: 'ஸ்கேன் செய்யும் முன் உங்கள் NRIC ஐ மறைக்கவும்',
+    speakTitle: 'உங்களைப் பற்றி, குரலில் சொல்லுங்கள்',
+    speakSub: 'மைக்கைத் தட்டி English, 中文, BM அல்லது தமிழில் பேசுங்கள். உங்களுக்கு மிக முக்கியமானதைக் காட்ட உங்கள் வார்த்தைகளைப் பயன்படுத்துகிறோம்.',
+    speakNext: 'பிறகு "PDF பதிவேற்று" அல்லது "படம் எடு" மூலம் உங்கள் ஒப்பந்தத்தைச் சேர்க்கவும்.',
+    noVoice: 'இந்த உலாவியில் குரல் உள்ளீடு வேலை செய்யாது. இங்கே தட்டச்சு செய்யுங்கள், அல்லது Chrome அல்லது Edge ஐ முயற்சிக்கவும்.',
+    wrongFile: 'PDF அல்லது படங்களைத் (JPG அல்லது PNG) தேர்ந்தெடுக்கவும்.',
+    canDo: ['கையெழுத்திடும் முன், ', 'ClauseWise செய்யுங்கள்.'],
+    sdgs: [['SDG 8', 'கண்ணியமான வேலை'], ['SDG 10', 'குறைந்த சமத்துவமின்மை'], ['SDG 16', 'நீதிக்கான அணுகல்']],
+    bento: [
+      ['01 · எளிய வார்த்தைகள்', 'சட்டச் சொற்கள், ஒரு நண்பர் விளக்குவது போல.', 'படியுங்கள், காமிக்காகப் பாருங்கள், அல்லது English, 中文, BM அல்லது தமிழில் கேளுங்கள்.'],
+      ['02', 'இருமுறை சரிபார்க்கப்பட்டது', 'மோசடி அறிகுறிகள் சுட்டிக்காட்டப்பட்டு, இரண்டாவது AI ஆல் சரிபார்க்கப்படும்.'],
+      ['03', 'உங்களுக்கு ஏற்றது', 'உங்கள் நிலைமையைச் சொல்லுங்கள், அதற்கு ஏற்ற திட்டத்தைப் பெறுங்கள்.'],
+      ['04', 'நீங்கள் ஒப்புதல் தருவது', 'AI அடுத்த படிகளையும் வரைவுச் செய்தியையும் தயாரிக்கும். முடிவு உங்களுடையது.'],
+      ['05', 'தட்டச்சு வேண்டாம்', 'பக்கங்களைப் படம் எடுங்கள் அல்லது பேசுங்கள். AI உங்களுக்காகப் படிக்கும்.'],
+    ],
+    askTitle: 'ClauseWise இடம் கேளுங்கள்', askSub: 'உங்கள் ஒப்பந்தத்திலிருந்து மட்டுமே பதில்கள்',
+    askHi: 'வணக்கம்! நான் ஒப்பந்தங்களை விளக்கி, சரிபார்க்க வேண்டியவற்றைக் காட்டுகிறேன். நீங்கள் என்ன செய்ய விரும்புகிறீர்கள்?',
+    askQs: ['என் ஒப்பந்தத்தை விளக்கு', 'இது மோசடியா?', 'முக்கியமான தேதிகளைக் கண்டுபிடி', 'நான் முன்கூட்டியே விலகினால் என்ன?'],
+    askPlaceholder: 'எதையும் கேளுங்கள்…', askLabel: 'உங்கள் ஒப்பந்தத்தைப் பற்றி ஒரு கேள்வி கேளுங்கள்', send: 'அனுப்பு', askAbout: 'எதைப் பற்றி',
+    askNone: 'முதலில் ஒரு ஒப்பந்தத்தை ஸ்கேன் செய்யுங்கள். பிறகு அதைப் பற்றி இங்கே எதையும் கேளுங்கள்.',
+    recent: 'சமீபத்திய ஒப்பந்தங்கள்', viewAll: 'அனைத்தையும் பார்',
+    recentNone: 'இன்னும் ஒப்பந்தங்கள் இல்லை. நீங்கள் ஸ்கேன் செய்யும் ஒப்பந்தங்கள் இங்கே காட்டப்படும்.', recentFailed: 'உங்கள் ஒப்பந்தங்களை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்க "என் ஒப்பந்தங்கள்" திறக்கவும்.',
+    status: { scam: (n) => `${n} சாத்தியமான மோசடி அறிகுறிகள்`, check: (n) => `சரிபார்க்க ${n} விஷயங்கள்`, clear: 'எச்சரிக்கை அறிகுறிகள் இல்லை', notYet: 'இன்னும் சரிபார்க்கவில்லை' },
+    scamFoot: 'மோசடி என்று சந்தேகமா? ScamShield ஐ அழைக்கவும்',
+    crumb: 'வழி', situation: 'உங்கள் நிலைமை', personal: 'தனிப்பட்ட விவரங்கள்',
+    readAloud: 'சத்தமாகப் படி', stopReading: 'படிப்பதை நிறுத்து', changeLang: 'மொழியை மாற்று', comic: 'காமிக்காகப் பார்',
+    glance: 'ஒரு பார்வையில்', toReply: 'பதிலளிக்க', units: { h: 'மணி', d: 'நாள்', w: 'வாரம்' },
+    dontPay: 'இப்போது எதையும் செலுத்த வேண்டாம்',
+    scamHead: (n) => `இந்த ஒப்பந்தத்தில் ${n} சாத்தியமான மோசடி அறிகுறிகள்`,
+    checkHead: (n) => `சரிபார்க்க வேண்டிய ${n} விஷயங்கள்`,
+    noneHead: 'நாங்கள் சரிபார்க்கும் எச்சரிக்கை அறிகுறிகள் எதுவும் இல்லை',
+    riskFailed: 'அபாயச் சரிபார்ப்பு முடியவில்லை. மீண்டும் முயற்சிக்க "அபாயங்கள்" திறக்கவும்.',
+    bannerNote: 'இவை எச்சரிக்கை அறிகுறிகள், இறுதித் தீர்ப்பு அல்ல. கையெழுத்திடும் முன் அல்லது பணம் அனுப்பும் முன் ஒவ்வொன்றையும் சரிபார்க்கவும்.',
+    noneNote: 'இது இறுதித் தீர்ப்பு அல்ல. ஒப்பந்தத்தைப் படியுங்கள், தெளிவில்லாதவற்றை நிபுணரிடம் கேளுங்கள்.',
+    stats: { clauses: 'பிரிவுகள் படிக்கப்பட்டன', check: 'சரிபார்க்க வேண்டியவை', steps: 'திட்டப் படிகள்' },
+    original: 'மூல ஒப்பந்தம்', clauses: (n) => `${n} பிரிவுகள்`,
+    viewing: 'நீங்கள் இந்தப் பிரிவைப் பார்க்கிறீர்கள்', showing: (l) => `மூல ஒப்பந்தத்தில் ${l} காட்டப்படுகிறது`,
+    clickHint: 'ஒரு குறிப்பைக் கிளிக் செய்தால், மூல ஒப்பந்தத்தில் அதன் பிரிவு தெரியும்.', aiMade: 'உங்கள் ஒப்பந்தத்திலிருந்து AI உருவாக்கியது.',
+    plainWords: 'எளிய வார்த்தைகள்',
+    planTitle: 'கையெழுத்திடும் முன் உங்கள் திட்டம்', planOf: (d, n) => `${n} இல் ${d}`,
+    markDone: (i) => `படி ${i}: முடிந்ததாகக் குறி`, planMaking: 'உங்கள் திட்டம் தயாராகிறது…',
+    planNone: 'உங்கள் ஒப்பந்தத்துடன் சரிபார்க்கக்கூடிய படிகளை உருவாக்க முடியவில்லை.',
+    editAbout: 'உங்களைப் பற்றியதைத் திருத்து', onlyContract: ['ஒப்பந்தத்தை மட்டும் வைத்து. ', 'உங்களைப் பற்றிச் சொல்லுங்கள்', ', உங்களுக்கு ஏற்ற திட்டம் கிடைக்கும்.'],
+    sidePanel: 'உங்கள் திட்டமும் அடுத்த படிகளும்',
+    finalSay: 'இறுதி முடிவு', call: ['முடிவு ', 'உங்களுடையது.'], callText: 'ClauseWise SG சரிபார்க்க வேண்டியவற்றைக் காட்டுகிறது. தேர்வு உங்களுடையது.',
+    notLegal: 'ClauseWise SG ஒப்பந்தங்களை விளக்குகிறது. இது சட்ட ஆலோசனை அல்ல.',
+  },
+};
+const dtLang = (lang) => (DT_WORDS[lang] ? lang : 'en');
+const dtWords = (lang) => DT_WORDS[dtLang(lang)];
+
+// Fixed labels (no contract text in them): escaped without hiding any names.
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+// "5.3" -> "§ 5.3"; named sections like "Acceptance" stay as they are.
+function dtRef(n) {
+  return /^\d/.test(n) ? `§ ${n}` : n;
+}
+
+// The language the desktop chrome is in: the open contract's, otherwise the one picked on Home.
+function shellLang() {
+  const { name, params } = parseRoute();
+  return (name === 'contract' && contractCache.get(params[0])?.language) || scan.language;
+}
+
+const SPARK_PATH = 'M24 15.5c.9 4.8 3.7 7.6 8.5 8.5-4.8.9-7.6 3.7-8.5 8.5-.9-4.8-3.7-7.6-8.5-8.5 4.8-.9 7.6-3.7 8.5-8.5z';
+const RING_PATH = 'M38 12.5A17 17 0 1 0 38 35.5';
+// The C-ring logo with the yellow sparkle (mockup).
+const ringMark = (cls, ring, spark, width = 7) => `<svg class="${cls}" viewBox="0 0 48 48" aria-hidden="true"><path d="${RING_PATH}" fill="none" stroke="${ring}" stroke-width="${width}" stroke-linecap="round"/>${spark ? `<path d="${SPARK_PATH}" fill="${spark}" stroke="none"/>` : ''}</svg>`;
+const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c1 5.3 4.7 9 10 10-5.3 1-9 4.7-10 10-1-5.3-4.7-9-10-10 5.3-1 9-4.7 10-10z" fill="currentColor" stroke="none"/></svg>';
+
+const DT_ICONS = {
+  home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg>',
+  scan: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></svg>',
+  contracts: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
+  deadlines: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
+  experts: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0 1 12 0M16 4.5a3.5 3.5 0 0 1 0 7M18 20a6 6 0 0 0-3-5.2"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>',
+  cloud: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a5 5 0 0 1-.5-10A6 6 0 0 1 18 9a4 4 0 0 1-1 9"/><path d="M12 12v8M9 15l3-3 3 3"/></svg>',
+  shieldCheck: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 4 14h7l-1 7 9-11h-7z"/></svg>',
+  send: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+  tick: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>',
+};
+
+// ----- Saved contracts with their counts (Recent contracts, the Deadlines badge) -----
+
+let contractsList = null;
+let contractsListAt = 0;
+let contractsListError = false;
+let contractsListLoading = null;
+
+function loadContractsList() {
+  if (contractsListLoading || (contractsList && Date.now() - contractsListAt < 15000)) return;
+  contractsListLoading = api('contracts', { what: 'loading your contracts' })
+    .then((rows) => {
+      contractsList = rows;
+      contractsListError = false;
+    })
+    .catch(() => { contractsListError = true; })
+    .finally(() => {
+      contractsListAt = Date.now();
+      contractsListLoading = null;
+      if (!isDesktop()) return;
+      renderSide();
+      const recent = document.getElementById('dt-recent');
+      if (recent) recent.outerHTML = dtRecent();
+      const ask = document.getElementById('dt-ask');
+      if (ask && !ask.contains(document.activeElement)) ask.outerHTML = dtAskPanel();
+    });
+}
+// Counts change after a scan, a delete or a finished check: fetch them again next time.
+const refreshContractsList = () => { contractsListAt = 0; };
+
+// ----- Sidebar, top bar, the View switch -----
+
+const sideEl = document.getElementById('dt-side');
+const frameBar = document.getElementById('frame-bar');
+
+function renderSide() {
+  if (!isDesktop()) return;
+  const lang = shellLang();
+  const w = dtWords(lang);
+  const onContract = parseRoute().name === 'contract';
+  const dates = (contractsList || []).reduce((n, r) => n + (r.dates || 0), 0);
+  const link = (id, href, extra = '') => `
+    <a href="${href}"${chrome.nav === id ? ' aria-current="page"' : ''}>${DT_ICONS[id]}<span>${esc(w.nav[id])}</span>${extra}</a>`;
+  const badge = dates ? `<span class="dt-badge" aria-hidden="true">${dates}</span><span class="visually-hidden">, ${esc(w.datesBadge(dates))}</span>` : '';
+  sideEl.lang = dtLang(lang);
+  sideEl.innerHTML = `
+    <a class="dt-logo" href="#/home" aria-label="${esc(w.homeLink)}">
+      ${ringMark('dt-logo-mark', '#8B6CF0', '#F5B800')}
+      <span class="dt-logo-text" aria-hidden="true">Clause<span>Wise</span> <span class="dt-sg">SG</span></span>
+    </a>
+    <nav class="dt-nav" aria-label="${esc(w.mainNav)}">
+      ${link('home', '#/home')}
+      ${link('scan', '#/scan')}
+      ${link('contracts', '#/contracts')}
+      ${link('deadlines', '#/deadlines', badge)}
+      ${link('experts', '#/experts')}
+    </nav>
+    ${onContract ? `
+      <div class="dt-side-box dt-side-scam">
+        <span class="dt-eyebrow">${esc(w.scamTitle)}</span>
+        <p>${esc(w.scamText)}</p>
+        <a href="tel:1799" aria-label="${esc(w.scamCall)}">1799</a>
+      </div>` : `
+      <div class="dt-side-box dt-side-private">
+        <span class="dt-eyebrow">${esc(w.privateTitle)}</span>
+        <ul>${w.privateItems.map((t) => `<li>${DT_ICONS.tick}<span>${esc(t)}</span></li>`).join('')}</ul>
+      </div>`}`;
+}
+
+function viewSwitch(lang) {
+  const w = dtWords(lang);
+  return `
+    <div class="view-switch" role="group" aria-label="${esc(w.view)}" lang="${dtLang(lang)}">
+      <span class="view-switch-label" aria-hidden="true">${esc(w.view)}:</span>
+      ${VIEWS.map((v) => `<button type="button" data-view="${v}" aria-pressed="${viewChoice === v}">${esc(w.views[v])}</button>`).join('')}
+    </div>`;
+}
+
+// Phone view on a wide screen: the switch sits above the phone frame, outside the phone layout.
+function renderFrameBar() {
+  frameBar.innerHTML = layout === 'frame' ? viewSwitch(shellLang()) : '';
+}
+
+// Home's language for explanations: the same control as on the phone (#lang-select).
+function dtLangPicker() {
+  return `
+    <label class="dt-lang">
+      ${icons.globe}
+      <span aria-hidden="true">${LANGUAGES.map((l) => (l.id === scan.language ? `<b>${l.short}</b>` : l.short)).join(' · ')}</span>
+      <select id="lang-select" aria-label="${esc(dtWords(scan.language).language)}" ${scan.busy ? 'disabled' : ''}>
+        ${LANGUAGES.map((l) => `<option value="${l.id}" ${l.id === scan.language ? 'selected' : ''}>${l.label}</option>`).join('')}
+      </select>
+    </label>`;
+}
+
+function dtTopbar(lang, withLang = false) {
+  return `<div class="dt-top">${withLang ? dtLangPicker() : ''}${viewSwitch(lang)}</div>`;
+}
+
+// Screens the desktop layout doesn't redraw (Contracts, Deadlines, You decide…): the phone
+// screen in a readable column, with the top bar, and a Back link where the phone has a back button.
+function dtPage(html) {
+  const { name, params } = parseRoute();
+  const lang = shellLang();
+  const w = dtWords(lang);
+  const inner = chrome.inner && !chrome.bare;
+  const titled = name === 'contract' && (params[1] === 'personal' || params[1] === 'situation');
+  return `
+    <div class="dt-page">
+      ${dtTopbar(lang)}
+      <div class="dt-narrow">
+        ${inner ? `<a class="dt-back" href="${backTarget()}" lang="${dtLang(lang)}">${icons.back} ${esc(w.back)}</a>` : ''}
+        ${titled ? `<h1 class="dt-inner-h1" lang="${dtLang(lang)}">${esc(params[1] === 'personal' ? w.personal : w.situation)}</h1>` : ''}
+        ${html}
+      </div>
+    </div>`;
+}
+
+// ----- Home -----
+
+let dtScanTab = 'pdf'; // 'pdf' | 'photos' | 'speak'
+let dtFocusStart = false; // "Scan a contract" in the sidebar: go to the start card
+
+function dtDrop(w, tab, off) {
+  const pdf = tab === 'pdf';
+  return `
+    <label class="dt-drop">
+      <input type="file" id="${pdf ? 'dt-file-input' : 'photo-input'}" accept="${pdf ? 'application/pdf,image/*' : 'image/*'}" multiple ${off}>
+      <span class="dt-drop-icon">${pdf ? DT_ICONS.cloud : icons.camera}</span>
+      <span class="dt-drop-text">
+        <span class="dt-drop-title">${esc(pdf ? w.dropTitle : w.photoTitle)}</span>
+        <span class="dt-drop-sub">${esc(pdf ? w.dropSub : w.photoSub)}</span>
+        <span class="dt-nric">${esc(w.nricPill)}</span>
+      </span>
+    </label>
+    ${pdf ? '' : `<p class="dt-photo-note">${icons.camera} ${escapeHtml(scanWords().nric)} Photos are read by AI before we can hide anything.</p>`}`;
+}
+
+function dtSpeakPanel(w, off) {
+  return `
+    <div class="dt-speak">
+      <span class="dt-speak-icon">${icons.mic}</span>
+      <span class="dt-speak-body">
+        <span class="dt-speak-title">${esc(w.speakTitle)}</span>
+        <span class="dt-speak-sub">${esc(voiceSupported ? w.speakSub : w.noVoice)}</span>
+      </span>
+    </div>
+    ${situationFields(off, 'h3')}
+    ${scan.stage === 'pick' ? `<p class="dt-speak-next">${esc(w.speakNext)}</p>` : ''}`;
+}
+
+// Files picked or dropped on the desktop drop zone: a PDF, or photos of the pages.
+function dtFiles(files) {
+  const pdf = files.find((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+  if (pdf) {
+    dtScanTab = 'pdf';
+    choosePdf(pdf);
+    return;
+  }
+  const images = files.filter((f) => f.type.startsWith('image/'));
+  if (images.length) {
+    dtScanTab = 'photos';
+    addPhotos(images);
+    return;
+  }
+  if (files.length) setScanStatus(notice('error', dtWords(scan.language).wrongFile));
+}
+
+function renderDesktopHome() {
+  const w = dtWords(scan.language);
+  const L = dtLang(scan.language);
+  const off = scan.busy ? 'disabled' : '';
+  // A chosen PDF or photos show on their own tab.
+  if (dtScanTab !== 'speak') dtScanTab = scan.file ? 'pdf' : scan.pages.length ? 'photos' : dtScanTab;
+  const tab = dtScanTab;
+  const tabBtn = (id, icon) => `
+    <button class="dt-seg-btn" type="button" role="tab" id="dt-tab-${id}" aria-selected="${tab === id}" aria-controls="dt-scan-panel"
+      tabindex="${tab === id ? 0 : -1}" data-dt-tab="${id}" ${off}>${icon}<span>${esc(w.tabs[id])}</span></button>`;
+  const showing = (tab === 'pdf' && scan.file) || (tab === 'photos' && scan.pages.length);
+  const panel = tab === 'speak' ? dtSpeakPanel(w, off)
+    : showing ? `
+      <div class="scan-card dt-scan-card">
+        ${scan.file ? chosenPdfHtml() : pagesHtml()}
+        ${readStatusHtml()}
+        <p class="scan-note">${icons.lock} Your original file is never saved · delete anytime</p>
+      </div>`
+      : dtDrop(w, tab, off);
+  const [b1, ...tiles] = w.bento;
+  const tileIcons = [DT_ICONS.shieldCheck, icons.person, DT_ICONS.bolt, icons.camera];
+
+  return `
+    <div class="dt-page">
+      ${dtTopbar(scan.language, true)}
+      ${DEMO_FAIL ? `<div class="demo-label" role="note"><strong>${escapeHtml(checkWords({ language: scan.language }).demo)}</strong> ${escapeHtml(checkWords({ language: scan.language }).demoNote)}</div>` : ''}
+      <div class="dt-home">
+        <div class="dt-home-main">
+          <div class="dt-hero">
+            <section class="dt-welcome" aria-labelledby="dt-welcome-h" lang="${L}">
+              ${ringMark('dt-welcome-ring', '#DCD0FF', '', 5)}
+              <span class="dt-welcome-spark">${STAR}</span>
+              <div class="dt-welcome-text">
+                <span class="dt-pill">${esc(w.gotContract)}</span>
+                <h1 class="dt-home-h1" id="dt-welcome-h">${esc(w.h1[0])}<br><span class="dt-accent">${esc(w.h1[1])}<span class="dt-mark">${esc(w.h1[2])}</span></span></h1>
+                <p class="dt-intro">${esc(w.intro)}</p>
+              </div>
+              <div class="dt-art" aria-hidden="true">
+                <div class="dt-art-letter">
+                  <span class="dt-art-head">LETTER OF OFFER</span>
+                  <span class="dt-art-ref">§ 5.3</span>
+                  <span class="dt-art-line" style="width:90%"></span>
+                  <span class="dt-art-line dt-art-hl"></span>
+                  <span class="dt-art-line" style="width:80%"></span>
+                  <span class="dt-art-ref dt-art-ref2">§ 13.1</span>
+                  <span class="dt-art-line" style="width:92%"></span>
+                  <span class="dt-art-line" style="width:70%"></span>
+                </div>
+                <div class="dt-art-card">
+                  <span class="dt-art-pill">${esc(w.artHigh)}</span>
+                  <span class="dt-art-text">${esc(w.artText)}</span>
+                  <span class="dt-art-foot">§ 5.3 · ${esc(w.artFoot)}</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="dt-start" aria-labelledby="dt-start-h">
+              <div class="dt-start-head" lang="${L}">
+                <h2 id="dt-start-h">${esc(w.startTitle)}</h2>
+                <div class="dt-seg" role="tablist" aria-label="${esc(w.startTabs)}">
+                  ${tabBtn('pdf', DT_ICONS.upload)}${tabBtn('photos', icons.camera)}${tabBtn('speak', icons.mic)}
+                </div>
+              </div>
+              <div class="dt-scan-panel" id="dt-scan-panel" role="tabpanel" aria-labelledby="dt-tab-${tab}">
+                ${panel}
+              </div>
+              <div id="scan-status" aria-live="polite"></div>
+              ${scan.stage !== 'pick' ? `
+                ${detectedHtml()}
+                <div class="dt-options">
+                  <div>
+                    <h3 class="h2">Explain it as</h3>
+                    ${tileGroup('explain_mode', EXPLAIN_MODES, scan.explainMode, 'tiles-mode', 'Explain it as')}
+                  </div>
+                  <div>
+                    <h3 class="h2" id="type-heading">What kind of contract?</h3>
+                    ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}
+                  </div>
+                </div>
+                ${tab === 'speak' ? '' : situationFields(off, 'h3')}
+                ${scan.stage === 'ready' ? `
+                  <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off}>
+                    ${scan.busy ? '<span class="spinner" aria-hidden="true"></span> Working…' : 'Explain my contract'}
+                  </button>` : ''}` : ''}
+            </section>
+          </div>
+
+          <section class="dt-cando" aria-labelledby="dt-cando-h" lang="${L}">
+            <div class="dt-cando-head">
+              <h2 id="dt-cando-h">${esc(w.canDo[0])}<span class="dt-accent">${esc(w.canDo[1])}</span></h2>
+              <div class="dt-sdgs">${w.sdgs.map(([sdg, name]) => `<span class="dt-sdg"><b>${esc(sdg)}</b> ${esc(name)}</span>`).join('')}</div>
+            </div>
+            <div class="dt-bento">
+              <div class="dt-tile dt-tile-big">
+                ${ringMark('dt-tile-deco', '#8761E6', '#FFD54A', 6)}
+                <span class="dt-tile-eyebrow">${esc(b1[0])}</span>
+                <h3 class="dt-tile-big-title">${esc(b1[1])}</h3>
+                <p class="dt-tile-big-text">${esc(b1[2])}</p>
+              </div>
+              ${tiles.map(([num, title, text], i) => `
+                <div class="dt-tile${i === 2 ? ' dt-tile-yellow' : ''}">
+                  <span class="dt-tile-top"><span class="dt-tile-icon">${tileIcons[i]}</span><span class="dt-tile-num">${esc(num)}</span></span>
+                  <h3 class="dt-tile-title">${esc(title)}</h3>
+                  <p class="dt-tile-text">${esc(text)}</p>
+                </div>`).join('')}
+            </div>
+          </section>
+        </div>
+
+        <aside class="dt-home-side" aria-label="${esc(w.askTitle)} · ${esc(w.recent)}">
+          ${dtAskPanel()}
+          ${dtRecent()}
+          <p class="dt-side-note" lang="${L}">${esc(w.scamFoot)} <a href="tel:1799">1799</a></p>
+        </aside>
+      </div>
+    </div>`;
+}
+
+// "Ask ClauseWise": the existing chatbot, about one of the saved contracts.
+function dtAskPanel() {
+  const w = dtWords(scan.language);
+  const rows = contractsList || [];
+  const off = rows.length ? '' : 'disabled';
+  const about = rows.length > 1 ? `
+    <label class="dt-ask-about"><span>${esc(w.askAbout)}</span>
+      <select id="dt-ask-about">${rows.map((r) => `<option value="${r.id}">${escapeHtml(displayTitle(r.title))}</option>`).join('')}</select>
+    </label>`
+    : rows.length ? `<p class="dt-ask-about">${esc(w.askAbout)}: <strong>${escapeHtml(displayTitle(rows[0].title))}</strong></p>` : '';
+  return `
+    <section class="dt-ask" id="dt-ask" aria-labelledby="dt-ask-h" lang="${dtLang(scan.language)}">
+      <div class="dt-ask-head">
+        ${ringMark('dt-ask-mark', '#B9A2FF', '#FFD54A')}
+        <div><h2 id="dt-ask-h">${esc(w.askTitle)}</h2><span class="dt-ask-sub">${esc(w.askSub)}</span></div>
+      </div>
+      <div class="dt-ask-body">
+        <p class="dt-ask-hi">${esc(contractsList && !rows.length ? w.askNone : w.askHi)}</p>
+        ${about}
+        <div class="dt-ask-qs">${w.askQs.map((q) => `<button type="button" data-dt-q="${esc(q)}" ${off}>${esc(q)}</button>`).join('')}</div>
+        <form class="dt-ask-box" id="dt-ask-form" autocomplete="off">
+          <input id="dt-ask-input" type="text" maxlength="500" placeholder="${esc(w.askPlaceholder)}" aria-label="${esc(w.askLabel)}" ${off}>
+          ${rows.length ? micButton('dt-ask-input', scan.language) : ''}
+          <button class="dt-send" type="submit" aria-label="${esc(w.send)}" ${off}>${DT_ICONS.send}</button>
+        </form>
+      </div>
+    </section>`;
+}
+
+// Opens the chosen contract's Ask tab and sends the question there.
+async function dtAsk(question) {
+  const q = String(question || '').trim();
+  const id = document.getElementById('dt-ask-about')?.value || contractsList?.[0]?.id;
+  if (!q || !id) return;
+  location.hash = `#/contract/${id}/ask`;
+  try {
+    sendQuestion(await loadContract(id), q);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function dtStatus(r, w) {
+  if (r.to_check === null || r.to_check === undefined) return ['wait', w.status.notYet];
+  if (r.scam_signs) return ['red', w.status.scam(r.scam_signs)];
+  if (r.to_check) return ['yellow', w.status.check(r.to_check)];
+  return ['calm', w.status.clear];
+}
+
+function dtRecent() {
+  const w = dtWords(scan.language);
+  let body;
+  if (!contractsList) {
+    body = contractsListError ? `<p class="dt-recent-none">${esc(w.recentFailed)}</p>`
+      : '<p class="dt-recent-none"><span class="spinner" aria-hidden="true"></span></p>';
+  } else if (!contractsList.length) {
+    body = `<p class="dt-recent-none">${esc(w.recentNone)}</p>`;
+  } else {
+    body = `<ul class="dt-recent-list">${contractsList.slice(0, 4).map((r) => {
+      const [tone, text] = dtStatus(r, w);
+      const type = CONTRACT_TYPES.find((t) => t.id === r.contract_type);
+      return `
+        <li><a class="dt-recent-item" href="#/contract/${r.id}/summary">
+          <span class="dt-recent-icon">${icons[type?.icon] || icons.doc}</span>
+          <span class="dt-recent-body">
+            <span class="dt-recent-title">${escapeHtml(displayTitle(r.title))}</span>
+            <span class="dt-status dt-status-${tone}">${esc(text)}</span>
+          </span>
+          ${icons.chevSmall}
+        </a></li>`;
+    }).join('')}</ul>`;
+  }
+  return `
+    <section class="dt-recent" id="dt-recent" aria-labelledby="dt-recent-h" lang="${dtLang(scan.language)}">
+      <div class="dt-recent-head"><h2 id="dt-recent-h">${esc(w.recent)}</h2><a href="#/contracts">${esc(w.viewAll)}</a></div>
+      ${body}
+    </section>`;
+}
+
+// ----- Contract screen -----
+
+// "Brightpath offer" -> "Brightpath <offer>", "Job offer – BrightPath" -> "Job offer – <BrightPath>"
+function dtTitle(title) {
+  const raw = displayTitle(title);
+  const dash = raw.match(/^(.*\S\s+[–-]\s+)(\S.*)$/);
+  const space = raw.lastIndexOf(' ');
+  const [lead, last] = dash ? [dash[1], dash[2]] : space > 0 ? [raw.slice(0, space + 1), raw.slice(space + 1)] : ['', raw];
+  return `${escapeHtml(lead)}<span class="dt-mark">${escapeHtml(last)}</span>`;
+}
+
+function dtContractHead(c, w, L) {
+  const meta = [
+    labelOf(CONTRACT_TYPES, c.contract_type),
+    c.source_type === 'photo' ? 'Photo' : 'PDF',
+    labelOf(LANGUAGES, c.language),
+    formatDate(c.created_at),
+  ].join(' · ');
+  const langLabel = labelOf(LANGUAGES, c.language || 'en');
+  return `
+    <div class="dt-head">
+      <div class="dt-head-main">
+        <nav class="dt-crumb" aria-label="${esc(w.crumb)}" lang="${L}">
+          <a href="#/contracts">${esc(w.nav.contracts)}</a> <span aria-hidden="true">/</span>
+          <span aria-current="page">${escapeHtml(displayTitle(c.title))}</span>
+        </nav>
+        <h1 class="dt-h1">${dtTitle(c.title)}</h1>
+        <div class="dt-meta" lang="${L}">
+          <span class="dt-meta-chip" lang="en">${escapeHtml(meta)}</span>
+          <a href="#/contract/${c.id}/situation">${esc(w.situation)}</a>
+          <a href="#/contract/${c.id}/personal">${esc(w.personal)}</a>
+        </div>
+      </div>
+      <div class="dt-actions" lang="${L}">
+        ${speechSupported ? `<button class="dt-icon-btn" type="button" data-dt-speak aria-pressed="${isSpeaking()}" aria-label="${esc(isSpeaking() ? w.stopReading : w.readAloud)}" title="${esc(w.readAloud)}">${icons.speaker}</button>` : ''}
+        <button class="dt-btn" type="button" data-dt-lang-btn aria-label="${esc(`${w.changeLang}: ${langLabel}`)}">${icons.globe}<span>${esc(langLabel)}</span></button>
+        <a class="dt-btn" href="#/contract/${c.id}/comic">${icons.comicGrid}<span>${esc(w.comic)}</span></a>
+        <a class="dt-btn dt-btn-primary" href="#/contract/${c.id}/decide" lang="${langAttr(c)}"><span>${esc(decideWords(c).title)}</span>${DT_ICONS.arrow}</a>
+      </div>
+    </div>`;
+}
+
+// A day and month in the English wording ("by 5 Nov 2026"), as a date.
+function parseDayMonth(text) {
+  const m = text.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?(?:,?\s+(\d{4}))?/i)
+    || text.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?/i);
+  if (!m) return null;
+  const [day, mon] = /^\d/.test(m[1]) ? [m[1], m[2]] : [m[2], m[1]];
+  const month = MONTHS.indexOf(mon.slice(0, 3).toLowerCase());
+  if (month < 0) return null;
+  const now = new Date();
+  const date = new Date(m[3] ? Number(m[3]) : now.getFullYear(), month, Number(day), 23, 59);
+  // No year given and long gone: it's next year's date.
+  if (!m[3] && now - date > 180 * 86400000) date.setFullYear(date.getFullYear() + 1);
+  return date;
+}
+
+// The reply-by date among the contract's key dates, if it has one: "within 24 hours" -> 24h,
+// "by 5 Nov" -> the days left.
+function replyWindow(c) {
+  const d = (c.summary || []).find((s) => s.key === 'key_date' && s.found !== false
+    && (/\b(reply|respond|accept|acceptance|sign and return|return the signed|lapse|expire)/i.test(s.plain_text || '')
+      || (s.clause_numbers || []).some((n) => /accept/i.test(n))));
+  if (!d) return null;
+  const text = d.plain_text || '';
+  const m = text.match(/\b(\d+)\s*(hours?|hrs?|days?|calendar days?|working days?|business days?|weeks?)\b/i);
+  if (m) return { n: Number(m[1]), unit: /^h/i.test(m[2]) ? 'h' : /^w/i.test(m[2]) ? 'w' : 'd', fill: 1 };
+  const date = parseDayMonth(text);
+  if (!date) return null;
+  const days = Math.max(Math.ceil((date - Date.now()) / 86400000), 0);
+  return { n: days, unit: 'd', fill: Math.min(days / 14, 1) };
+}
+
+function dtReplyRing(c, w) {
+  const r = replyWindow(c);
+  if (!r) return '';
+  const value = `${r.n}${w.units[r.unit]}`;
+  const size = value.length <= 3 ? 23 : value.length <= 5 ? 18 : 14;
+  return `
+    <svg class="dt-ring" viewBox="0 0 100 100" role="img" aria-label="${esc(`${value} ${w.toReply}`)}">
+      <circle cx="50" cy="50" r="42" fill="#5A31C4" stroke="#8761E6" stroke-width="10"/>
+      <circle cx="50" cy="50" r="42" fill="none" stroke="#FFD54A" stroke-width="10" stroke-linecap="round" stroke-dasharray="${Math.round(264 * r.fill)} 264" transform="rotate(-90 50 50)"/>
+      <text x="50" y="${size > 18 ? 48 : 47}" text-anchor="middle" font-size="${size}" font-weight="800" fill="#FFFFFF" stroke="none">${esc(value)}</text>
+      <text x="50" y="66" text-anchor="middle" font-size="11" font-weight="600" fill="#FFFFFF" stroke="none">${esc(w.toReply)}</text>
+    </svg>`;
+}
+
+// Violet "At a glance" banner: the real counts, once the final (double-checked) answer is ready.
+function dtBanner(c, w, L) {
+  const ready = Boolean(finalState(c));
+  const items = c.risks ? riskList(c) : [];
+  const scam = items.filter((i) => i.kind === 'scam_sign').length;
+  let pill = '';
+  let title;
+  let note = '';
+  if (!ready) {
+    const cw = checkWords(c);
+    title = !c.summary ? cw.reading : !c.risks || (!c.tailored && !c.tailoredError) ? cw.finding : cw.checking;
+  } else if (!c.risks) {
+    title = w.riskFailed;
+  } else if (scam) {
+    title = w.scamHead(scam);
+    note = w.bannerNote;
+    if (asksToPay(items)) pill = w.dontPay;
+  } else if (items.length) {
+    title = w.checkHead(items.length);
+    note = w.bannerNote;
+  } else {
+    title = w.noneHead;
+    note = w.noneNote;
+  }
+  const stat = (n, label, yellow = false) => `
+    <div class="dt-stat${yellow ? ' dt-stat-yellow' : ''}"><b>${n ?? '–'}</b><span>${esc(label)}</span></div>`;
+  return `
+    <section class="dt-banner" aria-label="${esc(w.glance)}" lang="${L}">
+      ${ringMark('dt-banner-deco', '#7D55E0', '', 5)}
+      <div class="dt-banner-main">
+        ${ready ? dtReplyRing(c, w) : ''}
+        <div class="dt-banner-text">
+          ${pill ? `<span class="dt-pill">${esc(pill)}</span>` : ''}
+          <h2>${ready ? '' : '<span class="spinner" aria-hidden="true"></span>'}${esc(title)}</h2>
+          ${note ? `<p>${esc(note)}</p>` : ''}
+        </div>
+      </div>
+      <div class="dt-stats">
+        ${stat(c.clauses?.length || null, w.stats.clauses)}
+        ${stat(ready && c.risks ? items.length : null, w.stats.check, true)}
+        ${stat(ready && c.tailored ? c.tailored.plan.length : null, w.stats.steps)}
+      </div>
+    </section>`;
+}
+
+// The clause on show in the "Original contract" panel: { id, numbers, quote }.
+let dtViewing = null;
+
+function dtClauseList(c) {
+  const v = dtViewing?.id === c.id ? dtViewing : null;
+  const w = dtWords(c.language);
+  return (c.clauses || []).map((cl) => {
+    const target = v && cl.number === v.numbers[0];
+    const flagged = v && v.numbers.includes(cl.number);
+    const num = cl.number === 'Intro' ? '' : `<strong class="dt-cl-num">${escapeHtml(dtRef(cl.number))}</strong> `;
+    return `
+      <p class="dt-cl${flagged ? ' dt-cl-flagged' : ''}${target ? ' dt-cl-target' : ''}">${num}${target && v.quote ? highlight(cl.text, v.quote) : escapeHtml(cl.text)}${target ? `<span class="dt-cl-viewing" lang="${dtLang(c.language)}">${esc(w.viewing)}</span>` : ''}</p>`;
+  }).join('');
+}
+
+function dtOriginal(c, w, L) {
+  const n = c.clauses?.length || 0;
+  return `
+    <section class="dt-orig" aria-labelledby="dt-orig-h">
+      <div class="dt-orig-head" lang="${L}">
+        <h2 id="dt-orig-h">${esc(w.original)}</h2>
+        <span class="dt-orig-count">${n ? esc(w.clauses(n)) : ''}</span>
+      </div>
+      <div class="dt-orig-title">${escapeHtml(displayTitle(c.title))}</div>
+      <div class="dt-clauses" id="dt-clauses" tabindex="0" role="region" aria-label="${esc(w.original)}">
+        ${n ? dtClauseList(c) : '<p class="dt-cl"><span class="spinner" aria-hidden="true"></span></p>'}
+      </div>
+      <p class="visually-hidden" id="dt-live" aria-live="polite"></p>
+    </section>`;
+}
+
+// Highlights a point's clause in the "Original contract" panel and scrolls it into view there.
+function dtShowClause(c, numbers, quote = '', from = null) {
+  if (!c || !numbers?.length) return;
+  dtViewing = { id: c.id, numbers, quote };
+  const list = document.getElementById('dt-clauses');
+  if (!list) return;
+  list.innerHTML = dtClauseList(c);
+  document.querySelectorAll('.dt-selected').forEach((el) => el.classList.remove('dt-selected'));
+  from?.classList.add('dt-selected');
+  const smooth = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+  const target = list.querySelector('.dt-cl-target');
+  if (target) list.scrollTo({ top: Math.max(target.offsetTop - 12, 0), behavior: smooth });
+  // The panel itself may be off screen (narrower desktops put it above the rest).
+  const box = list.closest('.dt-orig').getBoundingClientRect();
+  if (box.bottom < 140 || box.top > window.innerHeight - 140) list.closest('.dt-orig').scrollIntoView({ behavior: smooth, block: 'start' });
+  const live = document.getElementById('dt-live');
+  if (live) live.textContent = dtWords(c.language).showing(numbers.map(dtRef).join(', '));
+}
+
+// Steps of the plan ticked off on this device (kept in the browser only).
+const planDoneCache = new Map();
+const planKey = (c) => `clausewise-plan-done:${c.id}`;
+function planDone(c) {
+  if (!planDoneCache.has(c.id)) {
+    let list = [];
+    try {
+      list = JSON.parse(localStorage.getItem(planKey(c)) || '[]');
+    } catch { /* storage blocked or bad value */ }
+    planDoneCache.set(c.id, Array.isArray(list) ? list : []);
+  }
+  return planDoneCache.get(c.id);
+}
+function togglePlanStep(c, i) {
+  const step = c.tailored?.plan?.[i];
+  if (!step) return;
+  const done = planDone(c);
+  const next = done.includes(step.text) ? done.filter((t) => t !== step.text) : [...done, step.text];
+  planDoneCache.set(c.id, next);
+  try {
+    localStorage.setItem(planKey(c), JSON.stringify(next));
+  } catch { /* kept until the page closes */ }
+  const card = document.getElementById('dt-plan');
+  if (card) card.outerHTML = dtPlan(c, dtWords(c.language));
+  document.querySelector(`[data-dt-step="${i}"]`)?.focus();
+}
+
+function dtHelpLink(key) {
+  const h = HELP_LINKS[key] || HELP_LINKS.probono;
+  const outside = h.href.startsWith('http') ? ' target="_blank" rel="noopener"' : '';
+  return `<a class="dt-help" href="${h.href}"${outside}><span>${h.href.startsWith('tel:') ? icons.phone : icons.building} ${esc(h.label)}</span></a>`;
+}
+
+// "Your plan before you sign" (PRD FR7) in the right column.
+function dtPlan(c, w) {
+  const card = (badge, inner) => `
+    <section class="dt-card dt-plan" id="dt-plan" aria-labelledby="plan">
+      <div class="dt-card-head"><h2 id="plan">${esc(w.planTitle)}</h2>${badge}</div>
+      ${inner}
+    </section>`;
+  if (c.tailoredError) return card('', `${notice('error', c.tailoredError)}${retryButton('tailored')}`);
+  if (!c.tailored || !finalState(c)) return card('', `<p class="dt-plan-wait"><span class="spinner" aria-hidden="true"></span> ${esc(w.planMaking)}</p>`);
+  const plan = c.tailored.plan || [];
+  const about = c.situation
+    ? `<a class="dt-plan-link" href="#/contract/${c.id}/situation">${esc(w.editAbout)}</a>`
+    : `<p class="dt-plan-note">${esc(w.onlyContract[0])}<a href="#/contract/${c.id}/situation">${esc(w.onlyContract[1])}</a>${esc(w.onlyContract[2])}</p>`;
+  if (!plan.length) return card('', `<p class="dt-plan-note">${esc(w.planNone)}</p>${about}`);
+  const tr = tailoredTr(c);
+  const done = planDone(c);
+  const isDone = (s) => done.includes(s.text);
+  const count = plan.filter(isDone).length;
+  const next = plan.findIndex((s) => !isDone(s));
+  const steps = plan.map((s, i) => `
+    <li class="dt-step${isDone(s) ? ' done' : ''}${i === next ? ' next' : ''}">
+      <button class="dt-step-check" type="button" data-dt-step="${i}" aria-pressed="${isDone(s)}" aria-label="${esc(w.markDone(i + 1))}"><span>${isDone(s) ? DT_ICONS.tick : i + 1}</span></button>
+      <span class="dt-step-body">
+        <span class="dt-step-text">${s.checked === 'unclear' ? unclearHtml(c, s.clause_numbers) : escapeHtml(tr?.plan?.[i] || s.text)}</span>
+        <span class="dt-step-links">
+          ${(s.clause_numbers || []).map((n) => `<button class="dt-ref" type="button" data-dt-clause="${escapeHtml(n)}" aria-controls="dt-clauses"><span>${escapeHtml(dtRef(n))}</span></button>`).join('')}
+          ${dtHelpLink(s.help)}
+        </span>
+      </span>
+    </li>`).join('');
+  return card(`<span class="dt-count">${esc(w.planOf(count, plan.length))}</span>`, `
+    <div class="dt-progress" aria-hidden="true"><span style="width:${Math.round((count / plan.length) * 100)}%"></span></div>
+    <ol class="dt-steps">${steps}</ol>
+    ${about}`);
+}
+
+// "You make the call": the four options from "You decide" (PRD FR8), saved the same way.
+function dtCall(c, w) {
+  const dw = decideWords(c);
+  const choice = c.decisions?.choice || null;
+  return `
+    <section class="dt-call" id="dt-call" aria-labelledby="dt-call-h">
+      ${ringMark('dt-call-deco', '#2E2363', '#FFD54A', 6)}
+      <span class="dt-call-eyebrow">${esc(w.finalSay)}</span>
+      <h2 id="dt-call-h">${esc(w.call[0])}<span>${esc(w.call[1])}</span></h2>
+      <p>${esc(w.callText)}</p>
+      <div class="dt-call-grid" role="group" aria-label="${esc(dw.optionsHeading)}" lang="${langAttr(c)}">
+        ${CHOICE_ORDER.map((k) => `<button class="dt-call-btn" type="button" data-choice="${k}" aria-pressed="${choice === k}">${choice === k ? DT_ICONS.tick : ''}${esc(dw.options[k])}</button>`).join('')}
+      </div>
+      ${choice ? `
+        <div class="dt-call-next" role="status" lang="${langAttr(c)}">
+          <p><strong>${esc(dw.options[choice])}:</strong> ${esc(dw.next[choice])}</p>
+          ${CHOICE_HELP[choice].length ? `<div class="dt-call-help">${CHOICE_HELP[choice].map(dtHelpLink).join('')}</div>` : ''}
+        </div>` : ''}
+    </section>`;
+}
+
+function renderDesktopContract(c, tab, openClause) {
+  // The same work, in the same order, as the phone layout (renderContract).
+  if (!c.summary && !c.summaryError) loadAi(c, 'summary');
+  if (!c.risks && !c.risksError) loadAi(c, 'risks');
+  if (c.summary && c.risks && !c.tailored && !c.tailoredError) loadAi(c, 'tailored');
+  if (c.summary && c.risks && (c.tailored || c.tailoredError) && !finalState(c)) loadCheck(c);
+
+  const w = dtWords(c.language);
+  const L = dtLang(c.language);
+  const body = tab === 'summary' ? renderSummary(c)
+    : tab === 'risks' ? renderRisks(c)
+      : tab === 'comic' ? renderComic(c, openClause)
+        : renderAsk(c, openClause);
+  return `
+    <div class="dt-page">
+      ${dtTopbar(c.language)}
+      ${dtContractHead(c, w, L)}
+      ${dtBanner(c, w, L)}
+      <div class="dt-cols">
+        ${dtOriginal(c, w, L)}
+        <section class="dt-mid" aria-label="${esc(w.plainWords)}" lang="${L}">
+          <div class="tabs" role="tablist" aria-label="Contract sections" lang="en">${contractTabs(c, tab)}</div>
+          <section id="tab-panel" role="tabpanel" aria-labelledby="tab-${tab}" lang="en">${body}</section>
+          <p class="dt-mid-foot">${esc(w.notLegal)}</p>
+        </section>
+        <aside class="dt-right" aria-label="${esc(w.sidePanel)}" lang="${L}">
+          ${dtPlan(c, w)}
+          ${/* The mockup's "Agents at work" card goes here once FR11 (agents) exists. */ ''}
+          ${dtCall(c, w)}
+        </aside>
+      </div>
+    </div>`;
+}
+
+// Clicks that only exist in the desktop layout. Returns true when handled.
+function dtClick(e) {
+  if (!isDesktop()) return false;
+  const { name, params } = parseRoute();
+  const c = name === 'contract' ? contractCache.get(params[0]) : null;
+  const clauseBtn = e.target.closest('[data-dt-clause]');
+  if (clauseBtn) {
+    dtShowClause(c, clauseBtn.dataset.dtClause.split('|'), '', clauseBtn.closest('.point-row, .dt-ref'));
+    return true;
+  }
+  // A warning on the Risks tab: its clause, with the quoted words marked, instead of a new screen.
+  const riskLink = e.target.closest('a.risk-item');
+  if (riskLink && c?.risks && document.getElementById('dt-clauses')) {
+    const r = c.risks.items[Number(riskLink.getAttribute('href').split('/').pop())];
+    if (r) {
+      e.preventDefault();
+      dtShowClause(c, r.clause_numbers, r.quote, riskLink.closest('.risk-card'));
+      return true;
+    }
+  }
+  const step = e.target.closest('[data-dt-step]');
+  if (step && c) {
+    togglePlanStep(c, Number(step.dataset.dtStep));
+    return true;
+  }
+  if (e.target.closest('[data-dt-speak]')) {
+    toggleReadAloud();
+    return true;
+  }
+  if (e.target.closest('[data-dt-lang-btn]')) {
+    openLanguageSheet();
+    return true;
+  }
+  const scanTab = e.target.closest('[data-dt-tab]');
+  if (scanTab) {
+    dtScanTab = scanTab.dataset.dtTab;
+    render().then(() => document.getElementById(`dt-tab-${dtScanTab}`)?.focus());
+    return true;
+  }
+  const q = e.target.closest('[data-dt-q]');
+  if (q) {
+    dtAsk(q.dataset.dtQ);
+    return true;
+  }
+  return false;
+}
+
+// Dropping a PDF or photos on the drop zone.
+screen.addEventListener('dragover', (e) => {
+  const zone = e.target.closest?.('.dt-drop');
+  if (!zone || scan.busy) return;
+  e.preventDefault();
+  zone.classList.add('dt-drop-over');
+});
+screen.addEventListener('dragleave', (e) => {
+  e.target.closest?.('.dt-drop')?.classList.remove('dt-drop-over');
+});
+screen.addEventListener('drop', (e) => {
+  const zone = e.target.closest?.('.dt-drop');
+  if (!zone) return;
+  e.preventDefault();
+  zone.classList.remove('dt-drop-over');
+  if (!scan.busy) dtFiles([...(e.dataTransfer?.files || [])]);
+});
+
 // ---------- Router ----------
 
 function parseRoute() {
@@ -2978,7 +4104,11 @@ function parseRoute() {
 // Top-level screens show the bottom nav; inner screens (a contract) show the header
 // with a back button instead, as in the mockups.
 // `bare` hides the header too, for screens that draw their own top bar ("Your document").
+// What the current screen's chrome is, for the desktop sidebar and Back link.
+let chrome = { title: '', nav: 'home', inner: false, bare: false };
+
 function setChrome({ title = '', nav, inner = false, bare = false, tools = false, comicHref = null }) {
+  chrome = { title, nav, inner, bare };
   pageTitle.textContent = title;
   header.hidden = !inner || bare;
   bottomNav.hidden = inner;
@@ -3002,21 +4132,34 @@ let lastRouteKey = '';
 
 async function render() {
   const seq = ++renderSeq;
+  applyLayout();
+  const desk = isDesktop();
   const { name, params } = parseRoute();
   redactor = null; // set again below for a contract with "Hide these too" switched on
   const routeKey = `${name}/${params[0] || ''}`;
   const isNewScreen = routeKey !== lastRouteKey;
   lastRouteKey = routeKey;
+  if (desk) loadContractsList();
 
-  const show = (html) => {
+  // `full`: a desktop page drawn by the desktop layout itself; other screens are wrapped in it.
+  const show = (html, full = false) => {
     if (seq !== renderSeq) return;
-    screen.innerHTML = html;
+    // Keep the "Original contract" panel where it was when the same contract is drawn again.
+    const clauses = document.getElementById('dt-clauses');
+    const keep = !isNewScreen && clauses ? clauses.scrollTop : null;
+    screen.innerHTML = desk && !full ? dtPage(html) : html;
+    if (keep !== null) {
+      const again = document.getElementById('dt-clauses');
+      if (again) again.scrollTop = keep;
+    }
     if (isNewScreen) window.scrollTo(0, 0);
+    renderSide();
+    renderFrameBar();
   };
-  const showAsync = async (promise) => {
+  const showAsync = async (promise, full = false) => {
     if (!screen.innerHTML.includes('class="tabs"') || isNewScreen) show('<div class="loading"><span class="spinner"></span> Loading…</div>');
     try {
-      show(await promise);
+      show(await promise, full);
     } catch (err) {
       show(notice('error', err.message));
     }
@@ -3025,9 +4168,17 @@ async function render() {
   switch (name) {
     case 'home':
       setChrome({ nav: 'home' });
-      return show(renderHome());
+      show(desk ? renderDesktopHome() : renderHome(), desk);
+      if (desk && dtFocusStart) {
+        // "Scan a contract" in the sidebar: straight to the start card.
+        dtFocusStart = false;
+        document.querySelector('.dt-start')?.scrollIntoView({ block: 'center' });
+        document.querySelector('.dt-seg-btn[aria-selected="true"]')?.focus({ preventScroll: true });
+      }
+      return;
     case 'scan':
       // Scanning now lives on Home (as in the mockup); keep old links working.
+      if (desk) dtFocusStart = true;
       location.replace('#/home');
       return;
     case 'contracts':
@@ -3084,8 +4235,8 @@ async function render() {
       await showAsync(loadContract(id).then((c) => {
         // "Hide these too": names etc. are hidden everywhere, except the payee in Risks.
         redactor = makeRedactor(c, tab === 'risks' ? [c.risks?.company?.payee] : []);
-        return renderContract(c, tab, openClause);
-      }));
+        return desk ? renderDesktopContract(c, tab, openClause) : renderContract(c, tab, openClause);
+      }), desk);
       if (tab === 'comic' && openClause) document.querySelector('.comic-card.open')?.scrollIntoView({ block: 'start' });
       if (tab === 'ask') {
         scrollChatToEnd();
@@ -3101,6 +4252,8 @@ async function render() {
 screen.addEventListener('click', (e) => {
   // "No more typing" (PRD FR9): mic buttons, photo pages, problems and detection.
   if (micClick(e) || scanClick(e)) return;
+  // Desktop layout: clause panel, plan steps, header buttons, the start card's tabs, Ask ClauseWise.
+  if (dtClick(e)) return;
 
 
   // "You decide" (PRD FR8)
@@ -3130,7 +4283,14 @@ screen.addEventListener('click', (e) => {
     const choice = c.decisions?.choice === choiceBtn.dataset.choice ? null : choiceBtn.dataset.choice;
     c.decisions = { ...c.decisions, choice };
     saveDecision(c, { choice });
-    document.getElementById('options-slot').innerHTML = optionsSection(c);
+    const slot = document.getElementById('options-slot');
+    if (slot) slot.innerHTML = optionsSection(c);
+    // Desktop "You make the call" card.
+    const call = document.getElementById('dt-call');
+    if (call) {
+      call.outerHTML = dtCall(c, dtWords(c.language));
+      document.querySelector(`#dt-call [data-choice="${choiceBtn.dataset.choice}"]`)?.focus();
+    }
     return;
   }
   if (e.target.closest('[data-make-draft], [data-new-draft], [data-copy-draft], [data-update-plain]')) {
@@ -3248,26 +4408,38 @@ screen.addEventListener('click', (e) => {
 });
 
 screen.addEventListener('submit', (e) => {
+  if (e.target.id === 'dt-ask-form') {
+    e.preventDefault();
+    dtAsk(document.getElementById('dt-ask-input')?.value);
+    return;
+  }
   if (e.target.id !== 'ask-form') return;
   e.preventDefault();
   const question = document.getElementById('ask-input').value.trim();
   if (question) sendQuestion(contractCache.get(parseRoute().params[0]), question);
 });
 
-// Arrow keys move between tabs (standard tablist keyboard pattern).
+// Arrow keys move between tabs (standard tablist keyboard pattern): the contract tabs, and the
+// desktop start card's Upload PDF / Take photos / Speak.
 screen.addEventListener('keydown', (e) => {
-  if (!e.target.classList.contains('tab')) return;
+  const kind = ['tab', 'dt-seg-btn'].find((k) => e.target.classList.contains(k));
+  if (!kind) return;
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-  const tabs = [...screen.querySelectorAll('.tab')];
+  const tabs = [...screen.querySelectorAll(`.${kind}`)];
   const i = tabs.indexOf(e.target);
   tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length].click();
 });
 
-backBtn.addEventListener('click', () => {
+// Where Back goes (the phone header's back button, the desktop Back link).
+function backTarget() {
   const { name, params } = parseRoute();
-  if (name === 'contract' && (params[1] === 'personal' || params[1] === 'situation')) location.hash = `#/contract/${params[0]}/summary`;
-  else if (name === 'contract' && params[1] === 'decide') location.hash = `#/contract/${params[0]}/risks`;
-  else location.hash = name === 'contract' ? '#/contracts' : '#/home';
+  if (name === 'contract' && (params[1] === 'personal' || params[1] === 'situation')) return `#/contract/${params[0]}/summary`;
+  if (name === 'contract' && params[1] === 'decide') return `#/contract/${params[0]}/risks`;
+  return name === 'contract' ? '#/contracts' : '#/home';
+}
+
+backBtn.addEventListener('click', () => {
+  location.hash = backTarget();
 });
 
 window.addEventListener('hashchange', async () => {

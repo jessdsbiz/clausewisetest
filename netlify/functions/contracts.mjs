@@ -62,8 +62,15 @@ export default async (req) => {
 
 async function list(deviceId) {
   const rows = await selectContracts(
-    `select=${LIST_FIELDS}&device_id=eq.${deviceId}&order=created_at.desc`);
-  return Response.json(rows);
+    `select=${LIST_FIELDS},summary,risks&device_id=eq.${deviceId}&order=created_at.desc`);
+  // Only counts leave here, for the desktop layout's status chips and Deadlines badge.
+  // null: not made yet.
+  return Response.json(rows.map(({ summary, risks, ...row }) => ({
+    ...row,
+    scam_signs: Array.isArray(risks?.items) ? risks.items.filter((r) => r.kind === 'scam_sign').length : null,
+    to_check: Array.isArray(risks?.items) ? risks.items.length : null,
+    dates: Array.isArray(summary) ? summary.filter((s) => s.key === 'key_date' && s.found !== false).length : null,
+  })));
 }
 
 async function getOne(deviceId, id) {
