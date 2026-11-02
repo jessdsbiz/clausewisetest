@@ -1,8 +1,8 @@
-# ClauseWise: Requirements
+# ClauseWise SG: Requirements
 
 Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Have and Future items are out of scope for this build.
 
-> Every screen shows: **"ClauseWise explains contracts. It is not legal advice."**
+> Every screen shows: **"ClauseWise SG explains contracts. It is not legal advice."**
 
 ---
 
@@ -16,8 +16,10 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 | F4 | **Comic tab.** Turn a chosen clause into a 4-panel storyboard with a caption per panel, stated assumptions, the original clause text and the label "AI-generated example scene". | FR4 |
 | F5 | **Ask tab.** A chatbot that answers only from the uploaded contract, quotes the clause it used, and says "I'm not sure, ask an expert" when it can't find the answer. | FR5 |
 | F6 | **Explain it as.** Switch between plain words, comic and audio (browser read-aloud), in English, Chinese, Malay and Tamil. | FR6 |
+| F7 | **Your situation.** An optional "Tell us about you" box on the scan screen. The AI reads the user's own words (no fixed filters or rules) and uses them to reorder the Summary, adjust warning priorities with a "Why this matters for you" line, and make "Your plan before you sign": 3–6 steps, each linked to a clause and a help source (MOM, TADM, Pro Bono SG, ScamShield 1799, ACRA, CASE). | FR7 |
+| F8 | **You decide.** Each warning has "I'll ask about this", "I'm OK with this" and "This looks wrong". A "You decide" screen shows an AI-drafted, editable message in English to the employer or landlord ("AI draft – check and edit before sending"), a plain-words version in the user's language underneath, and four options: Sign / Negotiate first / Get expert help / Walk away. Nothing pre-selected, no recommendation, and the app never sends anything itself. | FR8 |
 
-**App shell:** a mobile-first PWA that can be installed to a phone home screen. Purple branding. Bottom nav: Home / Contracts / Deadlines / Experts. The contract screen has 4 tabs: Summary / Risks / Comic / Ask. Deadlines and Experts are in the nav, but their content is Nice to Have, so they stay placeholders in this build.
+**App shell:** a mobile-first PWA that can be installed to a phone home screen. Purple branding. Bottom nav: Home / Contracts / Deadlines / Experts. The contract screen has 4 tabs: Summary / Risks / Comic / Ask. Deadlines and Experts are in the nav, but their content is Nice to Have, so they stay placeholders in this build. The "You decide" screen opens from the Overview and the Risks tab (like the Personal details screen) and uses mockup 6 (Before you sign) as a style reference.
 
 **Technical constraints**
 - Plain HTML, CSS and JavaScript (no framework).
@@ -31,7 +33,7 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 ## 2. User stories and acceptance criteria
 
 ### US1: Upload a contract safely
-*As a job seeker who has just received an offer letter, I want to upload the PDF or snap a photo of it, so that ClauseWise can explain it before I sign.*
+*As a job seeker who has just received an offer letter, I want to upload the PDF or snap a photo of it, so that ClauseWise SG can explain it before I sign.*
 
 - [ ] The upload screen accepts a PDF file or a photo (camera or gallery) on a phone.
 - [ ] PDFs need no warning: NRIC/FIN numbers (`S****567A`) and bank or card account numbers (`****-0000`, last 4 digits only) are masked automatically in the browser right after the text is read, before it is saved or sent to any AI. The server masks again as a backstop.
@@ -95,6 +97,40 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - [ ] A read-aloud button speaks the current content using the Web Speech API in the selected language, and can be stopped.
 - [ ] The original clause text always stays in the contract's own language so it can be checked.
 
+### US6: Get help that fits my situation
+*As a fresh graduate signing my first job offer, I want to tell ClauseWise SG a little about myself, so that it shows what matters most for me and what to do before I sign.*
+
+- [ ] The scan screen has an optional "Tell us about you" box (up to 500 characters) with an example hint, e.g. "My first full-time job. I want to study part-time next year. I can't afford to lose money upfront." and the note "Optional. Don't include your NRIC or bank details." Scanning works the same with the box empty.
+- [ ] The text is masked like the contract (NRIC/FIN, bank and card numbers) in the browser before it is saved or sent to any AI.
+- [ ] The AI reads the user's words as written. No keyword lists, fixed categories or rules decide what is relevant.
+- [ ] Summary: rows that matter most for the user's situation come first, with a short "Ordered for your situation" note. No row is hidden, and "Not in this contract" rows are still listed. With the box empty, the order is the same as before.
+- [ ] Risks: a warning can get a "Why this matters for you" line (1–2 sentences). The situation can reorder warnings within a level and move risky terms between Info and Medium, but never makes a risky term High, never lowers or hides a scam sign, and never removes a warning. The list is still High, then Medium, then Info.
+- [ ] Each "Why this matters for you" line passes the code quote check: every number, amount, date and name in it must be in the warning's quote or the user's own words. A line that fails after one rewrite is dropped; the warning stays.
+- [ ] "Your plan before you sign" shows 3–6 steps in plain words at the end of the Summary tab. Each step has a clause tag (tapping it shows the original clause text) and one help source from a fixed list: MOM, TADM, Pro Bono SG, ScamShield 1799, ACRA, CASE. The AI picks from the list; the links and phone number come from the app, never the AI.
+- [ ] When the user has filled in "Tell us about you", a short "Made for you" banner sits at the top of the Summary tab with a button that jumps to the plan. With the box empty, there is no banner.
+- [ ] Plan steps pass the same quote check as summary points. If fewer than 3 pass, the plan is made again once; if still fewer than 3, the steps that passed are shown.
+- [ ] With the box empty, the plan is made from the contract alone and says "Based on the contract only. Tell us about you for a plan that fits you."
+- [ ] Plan steps and "Why this matters for you" lines never tell the user to sign or not sign, and never say "safe", "illegal" or "a scam".
+- [ ] The Overview has a "Your situation" link to add or change the text later. Saving it remakes only the personal parts (order, "Why this matters for you" lines and plan); the summary and warnings themselves are not remade.
+- [ ] Translation and read-aloud cover the "Why this matters for you" lines and plan steps.
+- [ ] On the BrightPath offer with "This is my first job and I can't afford to lose money upfront", the S$350 fee (5.3) and personal-name payee (5.4) warnings get a "Why this matters for you" line, and the plan includes checking the company on ACRA and not paying the S$350 before checking (Clause 5.3, ScamShield 1799). With "I might move to a competitor in Singapore within two years", the non-compete (13.1) moves up and gets a "Why this matters for you" line.
+
+### US7: Make my own decision
+*As a tenant about to sign, I want to note what I'll ask about, get a message I can send, and make the final call myself, so that the decision stays mine.*
+
+- [ ] Every warning on the Risks tab has three buttons: "I'll ask about this", "I'm OK with this" and "This looks wrong". None is selected at first. The user can pick one, change it, or tap it again to clear it. Choices are saved with the contract.
+- [ ] "This looks wrong" means the user thinks the warning doesn't fit their contract. The warning stays on the list with "You marked this as wrong" and is left out of the draft message.
+- [ ] A "You decide" button at the end of the Risks tab, and a link on the Overview, open the "You decide" screen (`#/contract/<id>/decide`). It lists the warnings the user marked "I'll ask about this".
+- [ ] The screen shows an AI-drafted, polite, short message to the employer, landlord, telco or lender (named by contract type, using the company name if found) asking about each "I'll ask about this" warning and naming its clause. It is labelled "AI draft – check and edit before sending".
+- [ ] The draft is always in English, since it goes to the other party. When the chosen language is Chinese, Malay or Tamil, a plain-words version in that language sits underneath, labelled "What this message says (not for sending)", so the user understands what they're sending. With English chosen, the plain-words version is not shown. After the user edits the draft, the plain-words version shows an "Update" button to remake it from the edited text.
+- [ ] The draft is in an editable text box, and edits are saved. There is a "Make a new draft" button and a **Copy** button. There is no Send button: the app never sends an email or message, or contacts anyone, itself.
+- [ ] The draft passes the code check: every number, amount, date and name must be in the contract. It never threatens, never says anything is "illegal" or "a scam", and never includes NRIC, bank numbers or other personal details hidden on the Personal details screen.
+- [ ] If no warning is marked "I'll ask about this", there is no draft, and the screen says "Mark a warning 'I'll ask about this' on the Risks tab to get a draft message."
+- [ ] Four options are shown in a fixed order with the same size and style: **Sign**, **Negotiate first**, **Get expert help**, **Walk away**. None is pre-selected, highlighted or labelled as recommended, and no AI output anywhere in the app says which to choose. Asked "Should I sign?" in the Ask tab, the chatbot says the choice is the user's and points to "You decide".
+- [ ] Picking an option saves it and shows fixed (not AI) next-step text: Sign → keep a signed copy and screenshots of your messages; Negotiate first → use the draft message above; Get expert help → MOM, TADM, Pro Bono SG and CASE links; Walk away → you don't have to sign, and if you were asked to pay, call ScamShield 1799. The choice can be changed at any time.
+- [ ] The screen shows the "not legal advice" line and "For a big decision, get a qualified professional to review the contract."
+- [ ] Delete removes these choices and the draft along with the contract.
+
 ---
 
 ## 3. Data fields for a saved contract
@@ -124,6 +160,9 @@ Stored in Supabase: one `contracts` row per upload. The original file is not sto
 | `comics` | jsonb | Array of `{ clause_number, title, assumptions: [text], panels: [{ background, expression, holding, character, character_mood, speech: { who, text } \| null, caption, key }] x4, created_at }`, one per clause. The app builds each panel from these parts with Mei (`mei.js`, outfit set by contract type) and the comic kit; no AI images. The original clause text and the "AI-generated example scene" label come from the app, not the AI. |
 | `chat` | jsonb | Array of `{ role, text, clause_numbers[], quote, not_sure, created_at }` (last 60 messages). Replies without a real clause are saved as "I'm not sure, ask an expert." |
 | `translations` | jsonb | Translated explanations, made once per part: `{ zh: { summary: [{ label, plain_text }], risks: [{ title, explanation }], "comic:4.4": { title, assumptions, captions } } }`. Original clause text is never translated. |
+| `situation` | text | What the user typed in "Tell us about you", masked like `raw_text`. Empty if they left it blank |
+| `tailored` | jsonb | Personal parts made from `situation`: `{ summary_order: [key], risks: [{ index, level, why_for_you }], plan: [{ text, clause_numbers[], help }] }`, where `help` is `mom` / `tadm` / `probono` / `scamshield` / `acra` / `case`. Remade when the situation changes; `summary` and `risks` stay as they are. Translations of `why_for_you` and plan steps are kept in `translations` |
+| `decisions` | jsonb | `{ risks: { "<item index>": "ask" / "ok" / "wrong" }, message, message_plain: { lang, text }, choice, updated_at }`, where `message` is the English draft as last edited, `message_plain` is its plain-words version in the chosen language, and `choice` is `null` / `sign` / `negotiate` / `expert` / `walk_away` |
 | `status` | text | `uploaded` / `processing` / `ready` / `error` |
 
 **Delete** removes the row, including all derived fields (and the Storage file, for older uploads that have one).
