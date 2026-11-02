@@ -1,12 +1,12 @@
 // /.netlify/functions/read-photo
 // POST { image: "data:image/jpeg;base64,..." } -> { text }
-// Reads the words in a photo of a contract or letter with an NVIDIA Build vision model.
+// Reads the words in a photo of a contract or letter with the AI (Claude, or NVIDIA Build if AI_PROVIDER=nvidia).
 // The browser sends one strip of the page per call; a blank strip returns empty text.
 
 import { HttpError, errorResponse } from '../lib/http.mjs';
-import { chatHedged, VISION_MODEL } from '../lib/nvidia.mjs';
+import { chatHedged, VISION_MODEL } from '../lib/ai.mjs';
 
-// NVIDIA accepts small images inline; the browser shrinks photos to fit this.
+// Images are sent inline; the browser shrinks photos to fit this.
 const MAX_IMAGE_CHARS = 180_000;
 
 const PROMPT = `This is a photo of part of a page from a contract or letter. Copy out ALL of the text exactly as written.

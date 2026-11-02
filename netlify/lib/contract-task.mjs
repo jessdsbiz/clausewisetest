@@ -5,7 +5,7 @@
 import { HttpError, errorResponse, requireDevice, contractIdParam } from './http.mjs';
 import { selectContracts, updateContract } from './supabase.mjs';
 import { splitClauses } from './clauses.mjs';
-import { chatJsonHedged, TEXT_MODEL } from './nvidia.mjs';
+import { chatJsonHedged, TEXT_MODEL } from './ai.mjs';
 import { clausesForPrompt } from './prompts.mjs';
 
 export const TYPE_LABELS = {

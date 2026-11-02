@@ -5,7 +5,9 @@
 //
 // Safeguards on top of the AI:
 //   - every warning needs an exact quote that is really in the contract, and every number,
-//     amount, date and name in its title and explanation must be in that quote (verify.mjs)
+//     amount, date and name in its title and explanation must be in that quote (verify.mjs).
+//     A warning that fails is rewritten from its clause's own words and kept; it is removed only
+//     if the clause it is about can't be found in the contract
 //   - "Scam sign" is only used for real scam patterns, and the quote must show the pattern
 //     (e.g. a payment for "pay to start"); other terms are at most Medium
 //   - wording that calls a contract safe, illegal or a scam is removed
@@ -13,9 +15,9 @@
 
 import { contractTask, clauseLookup, withReferencedParts } from '../lib/contract-task.mjs';
 import { RISKS_SYSTEM, RISK_REPAIR_SYSTEM, clausesForPrompt } from '../lib/prompts.mjs';
-import { chatJsonHedged, RISKS_MODEL, FUNCTION_LIMIT_MS } from '../lib/nvidia.mjs';
+import { chatJsonHedged, RISKS_MODEL, FUNCTION_LIMIT_MS } from '../lib/ai.mjs';
 import { cleanText } from '../lib/wording.mjs';
-import { checkPoint, norm } from '../lib/verify.mjs';
+import { checkPoint, locateQuote, norm } from '../lib/verify.mjs';
 
 const LEVELS = ['high', 'medium', 'info'];
 const CATEGORIES = ['pay_to_start', 'personal_account', 'pressure', 'credentials', 'company_details', 'non_compete',
@@ -66,12 +68,53 @@ function findPayeeIn(clauses) {
 }
 const findPayee = (clauses) => findPayeeIn(clauses)?.name || null;
 
+// Said by a warning kept from its clause's own words: it states no facts of its own.
+const CLAUSE_ONLY_NOTE = 'Read what this part of the contract says, and ask about it before you sign.';
+// A whole clause up to this long can be the quote; a longer one is cut to its most relevant part.
+const MAX_CLAUSE_QUOTE = 700;
+const MAX_EXCERPT = 300;
+
+// The sentences of a clause that share the most words with what the AI wrote, kept word for word.
+function excerpt(text, about) {
+  const words = new Set(norm(about).split(/[^a-z0-9$]+/).filter((w) => w.length > 3));
+  const sentences = String(text).trim().split(/(?<=[.;:])\s+/);
+  const score = (t) => norm(t).split(/[^a-z0-9$]+/).filter((w) => words.has(w)).length;
+  let best = 0;
+  sentences.forEach((t, i) => { if (score(t) > score(sentences[best])) best = i; });
+  let out = sentences[best];
+  for (let i = best + 1; i < sentences.length && `${out} ${sentences[i]}`.length <= MAX_EXCERPT; i++) out += ` ${sentences[i]}`;
+  if (out.length > MAX_EXCERPT) out = out.slice(0, out.lastIndexOf(' ', MAX_EXCERPT));
+  return out;
+}
+
+// Last step for a warning that failed the quote check twice: it is kept on its clause, quoted word
+// for word. First with the AI's own title and explanation, if every fact in them is in that clause;
+// otherwise with a plain title for its kind and no facts at all. Null only when the warning points
+// at no clause in the contract.
+function clauseOnly(clauses, byNumber, homes, category, tries) {
+  for (const n of homes) {
+    const text = byNumber.get(n).text.trim();
+    if (text.length > MAX_CLAUSE_QUOTE) continue;
+    for (const t of tries) {
+      if (!t?.title) continue;
+      const check = checkPoint(clauses, { texts: [t.title, t.explanation], quotes: [text], cited: [n] });
+      if (check.ok) return { title: t.title, explanation: t.explanation, check };
+    }
+  }
+  const about = tries.map((t) => `${t?.title || ''} ${t?.explanation || ''} ${t?.quote || ''}`).join(' ');
+  for (const n of homes) {
+    const check = checkPoint(clauses, { texts: [DEFAULT_TITLES[category], CLAUSE_ONLY_NOTE], quotes: [excerpt(byNumber.get(n).text, about)], cited: [n] });
+    if (check.ok) return { title: DEFAULT_TITLES[category], explanation: CLAUSE_ONLY_NOTE, check };
+  }
+  return null;
+}
+
 // A person's name, rather than a company or organisation.
 const COMPANY_WORDS = /\b(pte|ltd|limited|llp|inc|corp|company|bank|agency|ministry|board|council|authority|centre|center|society|association|services|solutions|holdings|group)\b/i;
 const simple = (s) => String(s || '').toLowerCase().replace(/\b(pte|ltd|private|limited|llp)\b|[^a-z0-9]/g, '');
 
 // Second try for a sign that failed the quote check: the AI sees what was wrong and the parts it
-// cited (plus any schedule they mention), and must quote every fact or give up on the sign.
+// cited (plus any schedule they mention), and must quote every fact or leave it out.
 async function repairSign(clauses, sign, cited, why) {
   const parts = cited.length ? withReferencedParts(clauses, clauses.filter((c) => cited.includes(c.number))) : clauses;
   try {
@@ -110,13 +153,15 @@ async function buildRisks(ai, clauses, row) {
   };
 
   // Every sign must pass the quote check. One that fails gets one rewrite (all at the same time),
-  // told what was wrong; if that fails too, it is not shown.
+  // told what was wrong; if that fails too, it is kept from its clause's own words (clauseOnly).
   const refsOf = (s) => [...new Set((Array.isArray(s?.clauses) ? s.clauses : []).map(lookup).filter(Boolean))];
   const checkSign = (s) => {
     const title = cleanText(s?.title, 90);
     const explanation = cleanText(s?.explanation, 260);
-    return { title, explanation, check: checkPoint(clauses, { texts: [title, explanation], quotes: [s?.quote], cited: refsOf(s) }) };
+    return { title, explanation, quote: s?.quote, check: checkPoint(clauses, { texts: [title, explanation], quotes: [s?.quote], cited: refsOf(s) }) };
   };
+  // The clauses a sign is about: the ones it cites, then the ones its quote comes from.
+  const homesOf = (s) => [...new Set([...refsOf(s), ...(locateQuote(clauses, s?.quote, refsOf(s)) || [])])].filter((n) => byNumber.has(n));
   const signs = (Array.isArray(ai?.signs) ? ai.signs : [])
     .filter((s) => s?.category !== 'company_details') // checked by the rule below instead
     .slice(0, 9);
@@ -126,8 +171,16 @@ async function buildRisks(ai, clauses, row) {
     if (first.check.ok) return { s, category, ...first };
     const fixed = await repairSign(clauses, s, refsOf(s), first.check.why);
     const second = fixed?.title ? checkSign(fixed) : null;
-    console.log(`Warning sign (${category}, "${first.title}") failed the check: ${first.check.why}. Rewrite ${second?.check.ok ? 'passed' : `failed${second ? `: ${second.check.why}` : ''}`}.`);
-    return second?.check.ok ? { s, category, ...second } : null;
+    const failed = `Warning sign (${category}, "${first.title}") failed the check: ${first.check.why}.`;
+    if (second?.check.ok) {
+      console.log(`${failed} Rewrite passed.`);
+      return { s, category, ...second };
+    }
+    const kept = clauseOnly(clauses, byNumber, [...new Set([...homesOf(s), ...(fixed ? homesOf(fixed) : [])])], category, [second, first]);
+    console.log(`${failed} Rewrite failed${second ? `: ${second.check.why}` : ''}. ${kept
+      ? `Kept on clause ${kept.check.clause_numbers[0]}${kept.title === DEFAULT_TITLES[category] ? ' with a plain title and no facts' : ''}.`
+      : 'Removed: the clause it is about is not in the contract.'}`);
+    return kept ? { s, category, ...kept } : null;
   }));
 
   const seen = new Set();

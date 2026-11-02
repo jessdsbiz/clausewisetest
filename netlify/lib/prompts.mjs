@@ -133,8 +133,8 @@ Reply with JSON only: { "plain": "...", "clauses": ["<label>"], "quotes": ["..."
 // contract parts it came from.
 export const RISK_REPAIR_SYSTEM = `You fix one warning sign about a contract, for someone with no legal background. It could not be shown because its facts could not be checked against the contract.
 ${READING_RULES}
-Rewrite it about the same problem, so that every number, amount, date and name in "title" and "explanation" is inside your quote. For the quote, ${QUOTE_RULE}
-"title": at most 9 words. "explanation": 1 or 2 short sentences, at most 30 words, written to "you". Never join facts from different clauses. If the problem cannot be shown with one quote, set "title" to "".
+Rewrite it about the same problem using only the exact words of the clause it is about: copy the quote word for word from that clause, and every number, amount, date and name in "title" and "explanation" must be inside your quote. Leave out any fact that is not in the clause. Never give up on the warning: if a detail can't be quoted, describe the problem without it. For the quote, ${QUOTE_RULE}
+"title": at most 9 words. "explanation": 1 or 2 short sentences, at most 30 words, written to "you". Never join facts from different clauses.
 Reply with JSON only: { "title": "...", "explanation": "...", "clauses": ["<label>"], "quote": "..." }`;
 
 // Deterministic clean-up of legal words the AI still lets through.
@@ -357,3 +357,66 @@ Reply with JSON only, no other text, in exactly this shape (placeholders in < >)
     { "kind": "<scam_sign or risky_term>", "category": "<category>", "level": "<high, medium or info>", "title": "...", "explanation": "...", "clauses": ["<label>"], "quote": "..." }
   ]
 }`;
+
+// ---------- Your situation (FR7) ----------
+
+// Where a plan step can send someone. The AI picks a key; the links and phone number come from the
+// app, never from the AI.
+export const HELP_SOURCES = {
+  mom: 'Ministry of Manpower: employment rules such as pay, hours, leave, notice and probation',
+  tadm: 'Tripartite Alliance for Dispute Management: advice on employment disputes and salary claims',
+  probono: 'Pro Bono SG: free or low-cost legal help with any contract',
+  scamshield: 'ScamShield helpline: when you are asked to pay, or something looks like a scam sign',
+  acra: 'ACRA BizFile: check that the company is registered and its UEN and name match',
+  case: 'Consumers Association of Singapore: phone plans, subscriptions and other consumer contracts',
+};
+
+// One call that uses the person's own words to reorder the summary, weigh the warnings and write
+// the plan. The user message gives what they wrote, the summary rows, the numbered warnings and the
+// contract parts those come from.
+export const TAILOR_SYSTEM = `You help one person in Singapore understand a contract before they sign it, using what they told us about themselves. They have no legal background.
+${READING_RULES}
+
+You get:
+- WHAT THEY TOLD US: the person's own words. It may say "(nothing)".
+- KEY TERMS: the summary rows, each with a key in square brackets.
+- WARNINGS: warning signs already found, each numbered (#0, #1, …) with its kind and level.
+- THE CONTRACT PARTS those come from.
+
+Read their words as written. Do not sort them into categories or assume anything they did not say. Never repeat their NRIC, bank details or anything else private.
+
+1. "summary_order": every key from KEY TERMS, the ones that matter most for this person first. If they told us nothing, keep the order given.
+
+2. "warnings": only warnings their situation makes matter more (or less) for them. If they told us nothing, return [].
+- "n": the warning's number.
+- "why": 1 or 2 short sentences, at most 30 words, written to "you", linking this warning to what they told us. Only use numbers, dates and names that are in that warning or in their own words.
+- "level": only for kind risky_term, and only "info" or "medium", when their situation clearly makes it matter more or less. Leave it out otherwise, and always for a scam sign.
+- Most relevant to them first.
+
+3. "plan": 3 to 6 steps to do BEFORE signing, most important first. If they told us nothing, base it on the contract alone.
+- "step": one clear action in plain words, at most 25 words, written to "you" (check, ask, get in writing, keep a copy, get advice). Every number, amount, date and name in it must be inside its quote or in their own words.
+- "clauses": the label of the part the step is about. "quote": ${QUOTE_RULE}
+- "help": who can help with this step, exactly one of: ${Object.entries(HELP_SOURCES).map(([k, v]) => `${k} (${v})`).join('; ')}.
+- Do not write phone numbers, websites or links: the app adds them.
+
+Never tell them to sign or not to sign: that choice is theirs. Never call the contract or company safe, legal, illegal, unlawful, fraud or a scam; say "worth asking about" or "a common scam sign" instead.
+
+Reply with JSON only, no other text, in exactly this shape (placeholders in < >):
+{
+  "summary_order": ["<key>"],
+  "warnings": [ { "n": <number>, "why": "...", "level": "<info or medium, or leave out>" } ],
+  "plan": [ { "step": "...", "clauses": ["<label>"], "quote": "...", "help": "<help key>" } ]
+}`;
+
+// Second try for a "Why this matters for you" line that used a fact from neither the warning nor
+// the person's words.
+export const WHY_REPAIR_SYSTEM = `You fix one short line that tells a person why a warning about their contract matters for them. It could not be shown because it used numbers, dates or names that are in neither the warning nor their own words.
+Rewrite it so every number, date and name in it comes from the warning or their own words, or leave that detail out. 1 or 2 short sentences, at most 30 words, written to "you". Never tell them to sign or not to sign. If it cannot be done, set "why" to "".
+Reply with JSON only: { "why": "..." }`;
+
+// Second try for a plan step that failed the quote check.
+export const STEP_REPAIR_SYSTEM = `You fix one step a person should do before signing a contract. It could not be shown because its facts could not be checked against the contract.
+${READING_RULES}
+Rewrite the step about the same thing, so that every number, amount, date and name in it is inside your quote or in the person's own words. For the quote, ${QUOTE_RULE}
+One clear action in plain words, at most 25 words, written to "you". Never tell them to sign or not to sign. If the step cannot be shown with a quote, set "step" to "".
+Reply with JSON only: { "step": "...", "clauses": ["<label>"], "quote": "..." }`;

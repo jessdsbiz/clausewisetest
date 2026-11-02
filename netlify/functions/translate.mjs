@@ -1,11 +1,11 @@
 // /.netlify/functions/translate
-//   POST ?id=...&lang=zh&part=summary|risks|comic:<clause>  -> { lang, part, result }
+//   POST ?id=...&lang=zh&part=summary|risks|tailored|comic:<clause>  -> { lang, part, result }
 // Translates one part of the AI's explanations, once, and saves it in `translations[lang][part]`.
 // Original clause text is never translated: the app always shows the contract's own words.
 
 import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
 import { selectContracts, updateContract } from '../lib/supabase.mjs';
-import { chat, TRANSLATE_MODEL } from '../lib/nvidia.mjs';
+import { chat, TRANSLATE_MODEL } from '../lib/ai.mjs';
 import { translateSystem } from '../lib/prompts.mjs';
 import { inScript } from '../lib/scripts.mjs';
 
@@ -29,6 +29,18 @@ function partStrings(row, part) {
     return {
       strings: items.flatMap((r) => [r.title, r.explanation || '']),
       build: (t) => items.map((r, i) => ({ title: t[i * 2], explanation: t[i * 2 + 1] })),
+    };
+  }
+  if (part === 'tailored') {
+    // "Why this matters for you" lines, then the plan steps.
+    const risks = row.tailored?.risks || [];
+    const plan = row.tailored?.plan || [];
+    return {
+      strings: [...risks.map((r) => r.why_for_you || ''), ...plan.map((s) => s.text)],
+      build: (t) => ({
+        risks: risks.map((r, i) => ({ index: r.index, why_for_you: t[i] })),
+        plan: plan.map((s, i) => t[risks.length + i]),
+      }),
     };
   }
   const number = part.slice('comic:'.length);
@@ -109,10 +121,10 @@ export default async (req) => {
     const lang = params.get('lang');
     const part = params.get('part') || '';
     if (!LANGS.includes(lang)) throw new HttpError(400, 'Please choose Chinese, Malay or Tamil.');
-    if (!/^(summary|risks|comic:.{1,40})$/.test(part)) throw new HttpError(400, 'Nothing to translate.');
+    if (!/^(summary|risks|tailored|comic:.{1,40})$/.test(part)) throw new HttpError(400, 'Nothing to translate.');
 
     const query = `id=eq.${id}&device_id=eq.${deviceId}`;
-    const [row] = await selectContracts(`select=summary,risks,comics,translations&${query}`);
+    const [row] = await selectContracts(`select=summary,risks,comics,translations,tailored&${query}`);
     if (!row) throw new HttpError(404, 'Contract not found. It may have been deleted.');
 
     const translations = row.translations || {};
@@ -121,12 +133,17 @@ export default async (req) => {
 
     if (part === 'summary' && !row.summary) throw new HttpError(409, 'The summary is not ready yet.');
     if (part === 'risks' && !row.risks) throw new HttpError(409, 'The risk check is not ready yet.');
+    if (part === 'tailored' && !row.tailored) throw new HttpError(409, 'Your plan is not ready yet.');
 
     const { strings, build } = partStrings(row, part);
     const result = build(await translate(strings, lang));
 
     // Re-read before saving so two parts translated close together don't overwrite each other.
-    const [latest] = await selectContracts(`select=translations&${query}`);
+    const [latest] = await selectContracts(`select=translations,tailored&${query}`);
+    // New "Tell us about you" words cleared the plan while this ran: don't save the old one's translation.
+    if (part === 'tailored' && JSON.stringify(latest?.tailored) !== JSON.stringify(row.tailored)) {
+      throw new HttpError(409, 'Your plan changed. Please try again.');
+    }
     const merged = latest?.translations || {};
     merged[lang] = { ...(merged[lang] || {}), [part]: result };
     await updateContract(query, { translations: merged });

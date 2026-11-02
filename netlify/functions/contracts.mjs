@@ -1,8 +1,8 @@
 // /.netlify/functions/contracts
 //   GET              -> list this device's contracts
 //   GET    ?id=...   -> one contract with its text
-//   POST   (json)    -> save { raw_text, file_name, source_type, choices }
-//   PATCH  ?id=...   -> change { language, explain_mode, hide_personal }
+//   POST   (json)    -> save { raw_text, file_name, source_type, choices, situation }
+//   PATCH  ?id=...   -> change { language, explain_mode, hide_personal, situation }
 //   DELETE ?id=...   -> delete the contract and every saved result
 //
 // The original PDF or photo is never uploaded or stored: only the extracted text, which the
@@ -16,6 +16,10 @@ import { splitClauses } from '../lib/clauses.mjs';
 import { hidePersonalNumbers } from '../../public/js/privacy.js';
 
 const MAX_TEXT_CHARS = 200_000;
+const MAX_SITUATION_CHARS = 500;
+
+// "Tell us about you": masked like the contract (the browser already did; this is the backstop).
+const cleanSituation = (s) => hidePersonalNumbers(String(s ?? '').slice(0, MAX_SITUATION_CHARS)).text.trim();
 
 const CONTRACT_TYPES = ['job_offer', 'rental', 'phone_subscription', 'loan', 'business', 'other'];
 const EXPLAIN_MODES = ['plain', 'comic', 'audio'];
@@ -23,7 +27,7 @@ const LANGUAGES = ['en', 'zh', 'ms', 'ta'];
 const SOURCE_TYPES = { pdf: 'application/pdf', photo: 'image/jpeg' };
 
 const LIST_FIELDS = 'id,title,contract_type,explain_mode,language,source_type,file_name,status,created_at';
-const DETAIL_FIELDS = `${LIST_FIELDS},mime_type,raw_text,clauses,summary,risks,comics,chat,translations,personal`;
+const DETAIL_FIELDS = `${LIST_FIELDS},mime_type,raw_text,clauses,summary,risks,comics,chat,translations,personal,situation,tailored`;
 
 export default async (req) => {
   try {
@@ -89,6 +93,7 @@ async function create(deviceId, req) {
     mime_type: SOURCE_TYPES[sourceType],
     raw_text: rawText,
     clauses: splitClauses(rawText),
+    situation: cleanSituation(body.situation),
     status: 'uploaded',
   });
   return Response.json({ id: row.id }, { status: 201 });
@@ -105,7 +110,7 @@ async function change(deviceId, id, req) {
     if (!EXPLAIN_MODES.includes(body.explain_mode)) throw new HttpError(400, 'Please choose a valid explain mode.');
     fields.explain_mode = body.explain_mode;
   }
-  const [row] = await selectContracts(`select=id,personal&id=eq.${id}&device_id=eq.${deviceId}`);
+  const [row] = await selectContracts(`select=id,personal,situation,translations&id=eq.${id}&device_id=eq.${deviceId}`);
   if (!row) throw new HttpError(404, 'Contract not found. It may have been deleted.');
 
   // "Hide these too" on the Personal details screen.
@@ -113,9 +118,23 @@ async function change(deviceId, id, req) {
     if (!row.personal) throw new HttpError(409, 'Personal details have not been checked yet.');
     fields.personal = { ...row.personal, hide_extra: body.hide_personal === true };
   }
-  if (!Object.keys(fields).length) throw new HttpError(400, 'Nothing to change.');
-  await updateContract(`id=eq.${id}&device_id=eq.${deviceId}`, fields);
-  return Response.json({ ok: true });
+
+  // "Your situation": new words remake only the personal parts (tailor.mjs), so clear those and
+  // their translations. The summary and warnings themselves stay as they are.
+  let situation;
+  if (body.situation !== undefined) {
+    situation = cleanSituation(body.situation);
+    if (situation !== (row.situation || '')) {
+      fields.situation = situation;
+      fields.tailored = null;
+      const translations = row.translations || {};
+      for (const lang of Object.keys(translations)) delete translations[lang].tailored;
+      fields.translations = translations;
+    }
+  }
+  if (!Object.keys(fields).length && situation === undefined) throw new HttpError(400, 'Nothing to change.');
+  if (Object.keys(fields).length) await updateContract(`id=eq.${id}&device_id=eq.${deviceId}`, fields);
+  return Response.json(situation === undefined ? { ok: true } : { ok: true, situation });
 }
 
 async function remove(deviceId, id) {

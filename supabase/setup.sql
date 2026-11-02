@@ -22,6 +22,8 @@ create table if not exists public.contracts (
   chat          jsonb not null default '[]'::jsonb,
   translations  jsonb not null default '{}'::jsonb,
   personal      jsonb, -- Personal details screen: what was hidden, what else was found, "Hide these too"
+  situation     text not null default '', -- "Tell us about you", masked like raw_text
+  tailored      jsonb, -- "Your situation": summary order, "Why this matters for you" lines, plan
   status        text not null default 'uploaded' check (status in ('uploaded','processing','ready','error'))
 );
 

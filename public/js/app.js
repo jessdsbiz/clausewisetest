@@ -177,8 +177,14 @@ const scan = {
   contractType: 'job_offer',
   explainMode: 'plain',
   language: 'en',
+  situation: '',
   busy: false,
 };
+
+// "Tell us about you" (PRD FR7): optional, in the user's own words.
+const SITUATION_MAX = 500;
+const SITUATION_HINT = "e.g. My first full-time job. I want to study part-time next year. I can't afford to lose money upfront.";
+const SITUATION_NOTE = "Optional. Don't include your NRIC or bank details.";
 
 function tileGroup(name, options, selected, className, label) {
   return `
@@ -253,6 +259,11 @@ function renderHome() {
     <h2 class="h2">What kind of contract?</h2>
     ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}
 
+    <h2 class="h2"><label for="situation-input">Tell us about you</label> <span class="h2-tag">Optional</span></h2>
+    <textarea class="situation-input" id="situation-input" maxlength="${SITUATION_MAX}" rows="3"
+      placeholder="${escapeHtml(SITUATION_HINT)}" aria-describedby="situation-note" ${off}>${escapeHtml(scan.situation)}</textarea>
+    <p class="situation-note" id="situation-note">${icons.lock} ${escapeHtml(SITUATION_NOTE)} We use your words to show what matters most for you.</p>
+
     <div id="scan-status" aria-live="polite"></div>
     ${scan.file ? `
       <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off}>
@@ -325,10 +336,13 @@ async function submitScan() {
         contract_type: scan.contractType,
         explain_mode: scan.explainMode,
         language: scan.language,
+        // Masked like the contract before it leaves the device.
+        situation: hidePersonalNumbers(scan.situation.slice(0, SITUATION_MAX)).text.trim(),
       },
     });
 
     setFile(null);
+    scan.situation = '';
     scan.busy = false;
     // First the "Personal details found" screen; its Continue button goes where "Explain it as"
     // says: Comic opens the comics, Plain words and Audio open the Overview.
@@ -356,6 +370,11 @@ screen.addEventListener('change', (e) => {
   } else if (t.name === 'explain_mode') {
     scan.explainMode = t.value;
   }
+});
+
+// Typing doesn't re-render, so the box keeps its cursor.
+screen.addEventListener('input', (e) => {
+  if (e.target.id === 'situation-input') scan.situation = e.target.value;
 });
 
 // ---------- Contracts list ----------
@@ -455,8 +474,9 @@ function clauseQuotes(c, numbers) {
 }
 
 // A row in an "In plain words" / "Dates to note" card. Tapping it shows the original clauses.
+// `after`: extra HTML under the row that isn't part of the button (e.g. a help link).
 let pointSeq = 0;
-function pointRow(c, { lead, title, sub, numbers, muted = false }) {
+function pointRow(c, { lead, title, sub, numbers, muted = false, after = '' }) {
   const tappable = numbers.length > 0;
   const ref = tappable ? `${shortRef(numbers[0])}${numbers.length > 1 ? ` +${numbers.length - 1}` : ''}` : '';
   const id = `pt-${++pointSeq}`;
@@ -476,6 +496,7 @@ function pointRow(c, { lead, title, sub, numbers, muted = false }) {
     ? `<button class="point-row" type="button" aria-expanded="false" aria-controls="${id}">${inner}</button>
          <div class="point-clauses" id="${id}" hidden>${clauseQuotes(c, numbers)}</div>`
     : `<div class="point-row">${inner}</div>`}
+      ${after}
     </li>`;
 }
 
@@ -549,19 +570,27 @@ function displayTitle(title) {
 }
 
 // Summaries and risk checks are made once per contract (10–20 seconds each), then saved.
+// "Your situation" (`tailored`) is made from both, so it comes last.
 const aiRequests = new Map();
+const AI_ENDPOINTS = { summary: 'summary', risks: 'risks', tailored: 'tailor' };
 
 function loadAi(c, field) {
   const key = `${field}:${c.id}`;
   if (aiRequests.has(key)) return;
   delete c[`${field}Error`];
-  const what = { summary: 'making the summary', risks: 'checking for warning signs' }[field];
-  const call = () => api(`${field}?id=${encodeURIComponent(c.id)}`, { method: 'POST', what });
+  const what = { summary: 'making the summary', risks: 'checking for warning signs', tailored: 'making your plan' }[field];
+  const call = () => api(`${AI_ENDPOINTS[field]}?id=${encodeURIComponent(c.id)}`, { method: 'POST', what });
+  let stale = false;
   aiRequests.set(key, call()
     // The free AI service is sometimes slow or busy: retry once before showing an error.
     .catch((err) => (!err.status || err.status >= 500 ? call() : Promise.reject(err)))
     .then((data) => {
-      c.clauses = data.clauses;
+      // Made from words the user has since changed: ask again for the new ones.
+      if (field === 'tailored' && (data.situation || '') !== (c.situation || '')) {
+        stale = true;
+        return;
+      }
+      if (data.clauses) c.clauses = data.clauses;
       c[field] = data[field];
     })
     .catch((err) => {
@@ -570,9 +599,15 @@ function loadAi(c, field) {
     .finally(() => {
       aiRequests.delete(key);
       if (field === 'summary' && !c.risks && !c.risksError) loadAi(c, 'risks'); // risk check goes next
+      if ((field === 'risks' || stale) && c.risks && !c.tailored && !c.tailoredError) loadAi(c, 'tailored'); // then the plan
       const { name, params } = parseRoute();
       if (name !== 'contract' || params[0] !== c.id) return;
       const tab = params[1] || 'summary';
+      if (field === 'tailored') {
+        if (tab === 'summary') updateTailored(c);
+        else if (tab === 'risks') render();
+        return;
+      }
       if (field === 'risks' && tab === 'summary') updateRiskChrome(c); // don't close rows the reader has open
       else if ((field === 'summary' && tab === 'summary') || (field === 'risks' && (tab === 'risks' || tab === 'doc'))) render();
       else if (tab === 'comic' && !params[2]) render(); // the comic list is built from both
@@ -605,7 +640,9 @@ function renderSummary(c) {
   }
 
   // Rows the contract doesn't mention are hidden and listed in one grey line instead.
-  const terms = c.summary.filter((s) => s.key !== 'key_date' && s.found);
+  // The rest come in the order that fits the user's situation, once that is ready.
+  const terms = orderedTerms(c, c.summary.filter((s) => s.key !== 'key_date' && s.found));
+  const reordered = Boolean(c.situation && c.tailored);
   const missing = c.summary.filter((s) => s.key !== 'key_date' && !s.found);
   const dates = c.summary.filter((s) => s.key === 'key_date');
   // Translated wording, matched by position in the saved summary.
@@ -633,15 +670,21 @@ function renderSummary(c) {
 
   return `
     ${banner}
+    <div id="for-you">${forYouBanner(c)}</div>
     ${languageNote(c, 'summary')}
     ${listen}
-    <h2 class="h2">In plain words</h2>
+    <div class="section-row">
+      <h2 class="h2">In plain words</h2>
+      ${reordered ? '<span class="section-note">Ordered for your situation</span>' : ''}
+    </div>
     ${terms.length ? `<ul class="list-card">${terms.map(termRow).join('')}</ul>` : ''}
     ${missing.length ? `<p class="not-in-contract">Not in this contract: ${escapeHtml(missingLabels)}</p>` : ''}
 
     ${dates.length ? `
       <h2 class="h2">Dates to note</h2>
       <ul class="list-card">${dates.map(dateRow).join('')}</ul>` : ''}
+
+    <div id="plan-slot">${planSection(c)}</div>
 
     ${fullText(c)}
 
@@ -650,6 +693,169 @@ function renderSummary(c) {
     <button class="btn btn-danger-ghost btn-block" type="button" data-delete="${c.id}">${icons.trash} Delete this contract</button>
 
     <a class="fab" href="#/contract/${c.id}/ask">${icons.sparkle} Ask AI</a>`;
+}
+
+// ---------- Your situation (PRD FR7) ----------
+
+// Where a plan step can send someone. The AI only picks the key; links and numbers live here.
+const HELP_LINKS = {
+  mom: { label: 'MOM', href: 'https://www.mom.gov.sg/employment-practices' },
+  tadm: { label: 'TADM', href: 'https://www.tal.sg/tadm' },
+  probono: { label: 'Pro Bono SG', href: 'https://www.probono.sg/' },
+  scamshield: { label: 'ScamShield 1799', href: 'tel:1799' },
+  acra: { label: 'ACRA BizFile', href: 'https://www.bizfile.gov.sg/' },
+  case: { label: 'CASE', href: 'https://www.case.org.sg/' },
+};
+
+// Summary rows, most relevant to the user first (the saved order until that's ready).
+function orderedTerms(c, terms) {
+  const order = c.tailored?.summary_order;
+  if (!order?.length) return terms;
+  const pos = (s) => (order.includes(s.key) ? order.indexOf(s.key) : order.length);
+  return [...terms].sort((a, b) => pos(a) - pos(b));
+}
+
+const RISK_LEVELS = ['high', 'medium', 'info'];
+
+// Warnings in the order shown: High, then Medium, then Info; scam signs before other terms; then
+// what matters most for this person. The user's situation can move a risky term between Info and
+// Medium, never a scam sign. `index` is the position in the saved list (used in links and
+// translations), `why` the "Why this matters for you" line.
+function riskList(c) {
+  const items = c.risks?.items || [];
+  const tailored = c.tailored?.risks || [];
+  const list = items.map((r, index) => {
+    const t = tailored.find((x) => x.index === index);
+    const level = t && r.kind === 'risky_term' && ['info', 'medium'].includes(t.level) ? t.level : r.level;
+    return { ...r, index, level, why: t?.why_for_you || '', rel: t ? tailored.indexOf(t) : tailored.length };
+  });
+  const rank = (i) => RISK_LEVELS.indexOf(i.level) * 2 + (i.kind === 'scam_sign' ? 0 : 1);
+  return list.sort((a, b) => rank(a) - rank(b) || a.rel - b.rel || a.index - b.index);
+}
+
+// Translated "Why this matters" lines and plan steps, or null (starts the translation if needed).
+function tailoredTr(c) {
+  const t = c.tailored;
+  if (!t || !c.language || c.language === 'en') return null;
+  if (!t.plan.length && !t.risks.some((r) => r.why_for_you)) return null;
+  const tr = translated(c, 'tailored');
+  if (!tr && !c.translateErrors?.[`${c.id}:${c.language}:tailored`]) loadTranslation(c, 'tailored');
+  return tr;
+}
+
+const whyText = (c, r, tr) => tr?.risks?.find((x) => x.index === r.index)?.why_for_you || r.why;
+
+function whyLine(c, r, tr) {
+  const text = r.why && whyText(c, r, tr);
+  return text ? `<span class="risk-why"><strong>Why this matters for you:</strong> ${escapeHtml(text)}</span>` : '';
+}
+
+// "Made for you" banner at the top of the Overview when the user told us about themselves.
+function forYouBanner(c) {
+  if (!c.situation) return '';
+  const text = c.tailored
+    ? 'What matters most for you comes first, and your plan before you sign is ready.'
+    : c.tailoredError ? 'We could not fit this to your situation yet.' : 'Fitting this to your situation…';
+  return `
+    <div class="for-you">
+      <span class="for-you-icon">${icons.sparkle}</span>
+      <span class="for-you-body">
+        <span class="for-you-eyebrow">Made for you</span>
+        <span class="for-you-text">${escapeHtml(text)}</span>
+      </span>
+      <button class="for-you-btn" type="button" data-jump-plan>See your plan</button>
+    </div>`;
+}
+
+// "Your plan before you sign" at the end of the Overview: 3-6 steps, each with its clause and
+// somewhere to get help.
+function planSection(c) {
+  const head = `
+    <div class="section-row" id="plan">
+      <h2 class="h2">Your plan before you sign</h2>
+      ${c.situation ? `<a class="section-link" href="#/contract/${c.id}/situation">Edit about you</a>` : ''}
+    </div>`;
+  if (c.tailoredError) {
+    return `${head}${notice('error', c.tailoredError)}${retryButton('tailored')}`;
+  }
+  if (!c.tailored) {
+    return `${head}
+      <div class="card loading">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>${c.risks ? 'Making your plan from your contract' : 'Your plan comes after the risk check'}${c.situation ? ' and what you told us' : ''}…</span>
+      </div>`;
+  }
+  const { plan } = c.tailored;
+  const tr = tailoredTr(c);
+  const onlyContract = c.situation ? '' : `
+    <p class="plan-note">Based on the contract only. <a href="#/contract/${c.id}/situation">Tell us about you</a> for a plan that fits you.</p>`;
+  if (!plan.length) {
+    return `${head}${onlyContract}
+      <div class="card plan-empty"><p>We couldn't make steps we could check against your contract. Ask the chatbot, or a qualified professional, about anything unclear.</p></div>`;
+  }
+  const helpLink = (key) => {
+    const h = HELP_LINKS[key] || HELP_LINKS.probono;
+    const outside = h.href.startsWith('http') ? ' target="_blank" rel="noopener"' : '';
+    return `<a class="help-chip" href="${h.href}"${outside}>${h.href.startsWith('tel:') ? icons.phone : icons.building} ${escapeHtml(h.label)}</a>`;
+  };
+  return `${head}${onlyContract}
+    <ol class="list-card plan-list">
+      ${plan.map((s, i) => pointRow(c, {
+    lead: `<span class="step-num" aria-hidden="true">${i + 1}</span>`,
+    title: escapeHtml(tr?.plan?.[i] || s.text),
+    numbers: s.clause_numbers,
+    after: `<div class="plan-help">Help: ${helpLink(s.help)}</div>`,
+  })).join('')}
+    </ol>`;
+}
+
+// The plan arrived while the Overview is open. Redraw it, unless the reader has a row open, in
+// which case only the banner and the plan change (the new order shows next time).
+function updateTailored(c) {
+  if (!document.querySelector('button.point-row[aria-expanded="true"]')) {
+    render();
+    return;
+  }
+  const forYou = document.getElementById('for-you');
+  if (forYou) forYou.innerHTML = forYouBanner(c);
+  const slot = document.getElementById('plan-slot');
+  if (slot) slot.innerHTML = planSection(c);
+}
+
+// "Your situation" screen: add or change the words later. Only the parts made for you change.
+function renderSituation(c) {
+  return `
+    <p class="tab-lead">Tell us a little about you, in your own words. We show what matters most for you first, and make a plan before you sign.</p>
+    <textarea class="situation-input" id="situation-edit" maxlength="${SITUATION_MAX}" rows="5" aria-label="Tell us about you"
+      placeholder="${escapeHtml(SITUATION_HINT)}" aria-describedby="situation-note">${escapeHtml(c.situation || '')}</textarea>
+    <p class="situation-note" id="situation-note">${icons.lock} ${escapeHtml(SITUATION_NOTE)} NRIC and bank numbers are hidden automatically.</p>
+    <div id="situation-status" aria-live="polite"></div>
+    <button class="btn btn-primary btn-block" type="button" data-save-situation>Save and update my plan</button>
+    ${c.situation ? '<button class="btn btn-ghost btn-block" type="button" data-clear-situation>Clear what I wrote</button>' : ''}
+    <p class="tab-foot">Only the parts made for you change. Your summary and warnings stay the same.</p>`;
+}
+
+async function saveSituation(c, text, button) {
+  button.disabled = true;
+  const status = document.getElementById('situation-status');
+  if (status) status.innerHTML = notice('info', 'Saving…');
+  try {
+    const masked = hidePersonalNumbers(text.slice(0, SITUATION_MAX)).text.trim();
+    const { situation } = await api(`contracts?id=${encodeURIComponent(c.id)}`, {
+      method: 'PATCH', json: { situation: masked }, what: 'saving what you told us',
+    });
+    if (situation !== (c.situation || '')) {
+      c.situation = situation;
+      c.tailored = null;
+      delete c.tailoredError;
+      for (const lang of Object.keys(c.translations || {})) delete c.translations[lang].tailored;
+      for (const key of Object.keys(c.translateErrors || {})) if (key.endsWith(':tailored')) delete c.translateErrors[key];
+    }
+    location.hash = `#/contract/${c.id}/summary`;
+  } catch (err) {
+    button.disabled = false;
+    if (status) status.innerHTML = notice('error', err.message);
+  }
 }
 
 // ---------- Risks & scam check (mockups 3 and 3b) ----------
@@ -683,8 +889,8 @@ const asksToPay = (items) => items.some((i) => i.kind === 'scam_sign' && (i.cate
 
 // Red "SCAM CHECK" banner at the top of the Overview (mockup 2).
 function riskBanner(c) {
-  const items = c.risks?.items;
-  if (!items?.length) return '';
+  const items = riskList(c);
+  if (!items.length) return '';
   const scam = items.filter((i) => i.kind === 'scam_sign');
   const text = scam.length
     ? `${plural(scam.length, 'possible scam sign')}.${asksToPay(items) ? " Don't pay anything yet." : ''}`
@@ -701,7 +907,7 @@ function riskBanner(c) {
 }
 
 function riskTabDot(c) {
-  return c.risks?.items?.some((i) => i.level === 'high')
+  return riskList(c).some((i) => i.level === 'high')
     ? '<span class="tab-dot"><span class="visually-hidden">(high warnings)</span></span>' : '';
 }
 
@@ -767,7 +973,9 @@ function renderRisks(c) {
       </div>`;
   }
 
-  const { company, items } = c.risks;
+  const { company } = c.risks;
+  const items = riskList(c);
+  const tr = tailoredTr(c);
   const level = overallLevel(items);
   const scam = items.filter((i) => i.kind === 'scam_sign');
   const title = scam.length
@@ -795,12 +1003,13 @@ function renderRisks(c) {
 
     ${items.length ? `
       <h2 class="h2">What we found</h2>
-      ${items.map((r, i) => `
-        <a class="card risk-item" href="#/contract/${c.id}/doc/${i}">
+      ${items.map((r) => `
+        <a class="card risk-item" href="#/contract/${c.id}/doc/${r.index}">
           <span class="risk-icon lvl-${r.level}">${RISK_ICONS[r.category] || RISK_ICONS.other}</span>
           <span class="risk-body">
-            <span class="risk-item-title">${escapeHtml(riskText(c, i, 'title'))}</span>
-            ${r.explanation ? `<span class="risk-item-text">${escapeHtml(riskText(c, i, 'explanation'))}</span>` : ''}
+            <span class="risk-item-title">${escapeHtml(riskText(c, r.index, 'title'))}</span>
+            ${r.explanation ? `<span class="risk-item-text">${escapeHtml(riskText(c, r.index, 'explanation'))}</span>` : ''}
+            ${whyLine(c, r, tr)}
             <span class="risk-item-foot">
               <span class="level-pill lvl-${r.level}">${LEVEL_LABEL[r.level]}</span>
               <span class="risk-link">${escapeHtml(clauseLabel(r.clause_numbers[0]))}${r.clause_numbers.length > 1 ? ` +${r.clause_numbers.length - 1}` : ''} ${icons.chevSmall}</span>
@@ -844,14 +1053,19 @@ function renderDocument(c, indexParam) {
     loadAi(c, 'risks');
     return '<div class="card loading loading-tall"><span class="spinner" aria-hidden="true"></span><span>Checking your contract for warning signs…</span></div>';
   }
-  const items = c.risks.items;
+  // Stepped through in the same order as the Risks tab; the link holds the saved position.
+  const items = riskList(c);
   if (!items.length) return emptyState({ icon: icons.shield, title: 'No warning signs to show', text: 'Go back to see the full risk check.' });
 
   if (c.language && c.language !== 'en' && !translated(c, 'risks')) loadTranslation(c, 'risks');
+  const tr = tailoredTr(c);
 
   const n = items.length;
-  const i = Math.min(Math.max(Number(indexParam) || 0, 0), n - 1);
-  const r = items[i];
+  const p = Math.max(items.findIndex((x) => x.index === (Number(indexParam) || 0)), 0);
+  const r = items[p];
+  const i = r.index;
+  const prev = items[(p - 1 + n) % n].index;
+  const next = items[(p + 1) % n].index;
   const target = r.clause_numbers[0];
   const tag = `${r.kind === 'scam_sign' ? 'Scam sign' : 'Worth asking'} · ${LEVEL_LABEL[r.level]}`;
 
@@ -888,9 +1102,9 @@ function renderDocument(c, indexParam) {
         <span>${escapeHtml(displayTitle(c.title))} · ${escapeHtml(clauseLabel(target))}</span>
       </div>
       <div class="doc-stepper" role="group" aria-label="Warning signs">
-        <a class="step-btn" href="#/contract/${c.id}/doc/${(i - 1 + n) % n}" aria-label="Previous warning sign">${icons.chevUp}</a>
-        <span aria-live="polite">${i + 1}/${n}</span>
-        <a class="step-btn" href="#/contract/${c.id}/doc/${(i + 1) % n}" aria-label="Next warning sign">${icons.chevDown}</a>
+        <a class="step-btn" href="#/contract/${c.id}/doc/${prev}" aria-label="Previous warning sign">${icons.chevUp}</a>
+        <span aria-live="polite">${p + 1}/${n}</span>
+        <a class="step-btn" href="#/contract/${c.id}/doc/${next}" aria-label="Next warning sign">${icons.chevDown}</a>
       </div>
     </div>
 
@@ -901,6 +1115,7 @@ function renderDocument(c, indexParam) {
       <span class="level-pill lvl-${r.level}">${LEVEL_LABEL[r.level]} · ${escapeHtml(clauseLabel(target))}</span>
       <h2>${escapeHtml(riskText(c, i, 'title'))}</h2>
       ${r.explanation ? `<p>${escapeHtml(riskText(c, i, 'explanation'))}</p>` : ''}
+      ${r.why ? `<p class="sheet-why">${whyLine(c, r, tr)}</p>` : ''}
       <div class="help-row">
         <a class="btn btn-primary" href="#/contract/${c.id}/ask/${encodeURIComponent(target)}">${icons.chat} Ask the chatbot</a>
         <a class="btn btn-yellow" href="#/contract/${c.id}/comic/${encodeURIComponent(target)}">${icons.comicGrid} See as comic</a>
@@ -1332,6 +1547,8 @@ function renderContract(c, tab, openClause = null) {
   // Start the risk check in the background so the Overview banner and Risks tab are ready sooner,
   // but only once the summary is done: two AI calls at once can push one past the time limit.
   if (!c.risks && !c.risksError && (c.summary || c.summaryError)) loadAi(c, 'risks');
+  // Then "Your situation": the plan and anything made for this person.
+  if (c.summary && c.risks && !c.tailored && !c.tailoredError) loadAi(c, 'tailored');
 
   const tabsHtml = CONTRACT_TABS.map((t) => `
     <button class="tab" role="tab" type="button" id="tab-${t.id}"
@@ -1359,7 +1576,11 @@ function renderContract(c, tab, openClause = null) {
   return `
     <div class="meta-row">
       <span class="meta-chip">${escapeHtml(meta)}</span>
-      ${tab === 'summary' ? `<a class="privacy-link" href="#/contract/${c.id}/personal">${icons.lock} Personal details</a>` : ''}
+      ${tab === 'summary' ? `
+        <span class="meta-links">
+          <a class="privacy-link" href="#/contract/${c.id}/situation">${icons.person} Your situation</a>
+          <a class="privacy-link" href="#/contract/${c.id}/personal">${icons.lock} Personal details</a>
+        </span>` : ''}
     </div>
     <h1 class="contract-title">${escapeHtml(displayTitle(c.title))}</h1>
     <div class="tabs" role="tablist" aria-label="Contract sections">${tabsHtml}</div>
@@ -1456,19 +1677,33 @@ function readAloudContent(c, tab, extra) {
   const lang = c.language || 'en';
   const clean = (s) => String(s || '').replace(/\*\*/g, '');
   if (tab === 'summary' && c.summary) {
+    // Same order as the screen: terms, dates, then the plan.
     const tr = translated(c, 'summary');
-    const texts = c.summary.map((s, i) => {
-      const label = tr?.[i]?.label || s.label;
-      const text = s.found ? (tr?.[i]?.plain_text || s.plain_text) : '';
-      return s.key === 'key_date' ? text : text && `${label}. ${text}`;
-    }).filter(Boolean);
+    const t = (s, field) => tr?.[c.summary.indexOf(s)]?.[field] || s[field];
+    const terms = orderedTerms(c, c.summary.filter((s) => s.key !== 'key_date' && s.found));
+    const dates = c.summary.filter((s) => s.key === 'key_date' && s.found);
+    const texts = [...terms.map((s) => `${t(s, 'label')}. ${t(s, 'plain_text')}`), ...dates.map((d) => t(d, 'plain_text'))];
+    // The plan is read when it's in the same language as the rest.
+    const ttr = tailoredTr(c);
+    const plan = c.tailored?.plan || [];
+    if (plan.length && (tr ? ttr : lang === 'en')) {
+      if (!tr) texts.push('Your plan before you sign.');
+      texts.push(...plan.map((s, i) => ttr?.plan?.[i] || s.text));
+    }
     return { lang: tr ? lang : 'en', texts };
   }
   if ((tab === 'risks' || tab === 'doc') && c.risks) {
     const tr = translated(c, 'risks');
-    const items = c.risks.items.map((r, i) => ({ title: tr?.[i]?.title || r.title, explanation: tr?.[i]?.explanation || r.explanation }));
-    const pick = tab === 'doc' ? [items[Math.min(Number(extra) || 0, items.length - 1)]] : items;
-    return { lang: tr ? lang : 'en', texts: pick.filter(Boolean).flatMap((r) => [`${r.title}.`, r.explanation]) };
+    const ttr = tailoredTr(c);
+    const list = riskList(c);
+    const items = list.map((r) => ({
+      title: tr?.[r.index]?.title || r.title,
+      explanation: tr?.[r.index]?.explanation || r.explanation,
+      why: r.why && (tr ? ttr && whyText(c, r, ttr) : r.why),
+    }));
+    const at = Math.max(list.findIndex((r) => r.index === (Number(extra) || 0)), 0);
+    const pick = tab === 'doc' ? [items[at]] : items;
+    return { lang: tr ? lang : 'en', texts: pick.filter(Boolean).flatMap((r) => [`${r.title}.`, r.explanation, r.why]).filter(Boolean) };
   }
   if (tab === 'comic' && extra) {
     const comic = c.comics?.find((m) => m.clause_number === extra);
@@ -1648,6 +1883,11 @@ async function render() {
         await showAsync(loadContract(id).then((c) => renderPersonal(c, extra)));
         return;
       }
+      if (tabParam === 'situation') {
+        setChrome({ title: 'Your situation', nav: 'contracts', inner: true });
+        await showAsync(loadContract(id).then(renderSituation));
+        return;
+      }
       if (tabParam === 'doc') {
         setChrome({ nav: 'contracts', inner: true, bare: true });
         await showAsync(loadContract(id).then((c) => {
@@ -1738,6 +1978,17 @@ screen.addEventListener('click', (e) => {
     location.hash = `#/contract/${params[0]}/comic${open ? '' : `/${encodeURIComponent(comicHead.dataset.comic)}`}`;
     return;
   }
+  if (e.target.closest('[data-jump-plan]')) {
+    document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  const saveBtn = e.target.closest('[data-save-situation], [data-clear-situation]');
+  if (saveBtn) {
+    const c = contractCache.get(parseRoute().params[0]);
+    const text = saveBtn.matches('[data-clear-situation]') ? '' : document.getElementById('situation-edit')?.value || '';
+    if (c) saveSituation(c, text, saveBtn);
+    return;
+  }
   if (e.target.closest('[data-hide-personal]')) {
     const c = contractCache.get(parseRoute().params[0]);
     if (c?.personal) toggleHidePersonal(c);
@@ -1798,7 +2049,7 @@ screen.addEventListener('keydown', (e) => {
 
 backBtn.addEventListener('click', () => {
   const { name, params } = parseRoute();
-  if (name === 'contract' && params[1] === 'personal') location.hash = `#/contract/${params[0]}/summary`;
+  if (name === 'contract' && (params[1] === 'personal' || params[1] === 'situation')) location.hash = `#/contract/${params[0]}/summary`;
   else location.hash = name === 'contract' ? '#/contracts' : '#/home';
 });
 

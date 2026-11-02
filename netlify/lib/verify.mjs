@@ -72,7 +72,7 @@ const numbersIn = (text) => [...String(text).matchAll(/\d[\d,]*(?:\.\d+)?/g)]
 // Words that may start with a capital without being a name from the contract: general advice
 // the app gives ("check ACRA BizFile"), units and words everyone uses.
 const NOT_NAMES = new Set(['i', "i'm", "i'd", 'acra', 'bizfile', 'mom', 'scamshield', 'spf', 'uen', 'otp', 'pin', 'nric',
-  'fin', 'singapore', 'singaporean', 'am', 'pm', 'a.m', 'p.m', 'ok', 'tadm', 'case', 'pro', 'bono', 'sg',
+  'fin', 'singapore', 'singaporean', 'am', 'pm', 'a.m', 'p.m', 'ok', 'tadm', 'case', 'pro', 'bono', 'sg', 'hr',
   // units, checked as part of their number instead
   'gb', 'mb', 'kb', 'tb', 'gbps', 'mbps', 'km', 'kg', 'sgd', 'usd', 'hrs', 'mins']);
 
@@ -94,9 +94,16 @@ function namesIn(text) {
   return names;
 }
 
+// Whole month names or their short forms only, so "decide", "market" or "junior" aren't months.
+const MONTH_WORD = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:uary|ruary|ch|il|e|y|ust|t|tember|ober|ember)?\b/g;
+const MONTH_ENDINGS = { jan: ['uary'], feb: ['ruary'], mar: ['ch'], apr: ['il'], jun: ['e'], jul: ['y'], aug: ['ust'], sep: ['t', 'tember'], oct: ['ober'], nov: ['ember'], dec: ['ember'] };
+
 function monthsIn(text) {
   const found = [];
-  for (const m of String(text).toLowerCase().matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b/g)) {
+  for (const m of String(text).toLowerCase().matchAll(MONTH_WORD)) {
+    // The ending must belong to that month ("sept", "september"), not just any month ("janil").
+    const ending = m[0].slice(m[1].length);
+    if (ending && !MONTH_ENDINGS[m[1]]?.includes(ending)) continue;
     const i = MONTHS.findIndex((name) => name.startsWith(m[1].slice(0, 3)));
     // "may" is also an ordinary word; only count it next to a day or year.
     if (m[1] === 'may' && !/\d/.test(String(text).slice(Math.max(0, m.index - 4), m.index + 9))) continue;
@@ -140,7 +147,7 @@ export function unsupportedFacts(point, quotes, context = '', knownNames = new S
 
 // Capitalised words the contract itself uses 3 or more times ("PEI", "SINGVET", "Commencement").
 const namesCache = new WeakMap();
-function namesUsedThroughout(clauses) {
+export function namesUsedThroughout(clauses) {
   if (!namesCache.has(clauses)) {
     const counts = new Map();
     for (const c of clauses) {
@@ -155,8 +162,9 @@ function namesUsedThroughout(clauses) {
 }
 
 // Checks one point. `quotes` are the AI's quotes, `cited` its clause numbers (already looked up).
+// `extra`: other text that may back up a fact, i.e. what the user wrote about themselves.
 // Returns { ok, clause_numbers, quotes, why }: clause_numbers are the clauses the quotes come from.
-export function checkPoint(clauses, { texts, quotes, cited = [] }) {
+export function checkPoint(clauses, { texts, quotes, cited = [], extra = [] }) {
   const list = (Array.isArray(quotes) ? quotes : [quotes]).filter((q) => typeof q === 'string' && q.trim());
   if (!list.length) return { ok: false, why: 'no quote' };
   const homes = [];
@@ -171,7 +179,8 @@ export function checkPoint(clauses, { texts, quotes, cited = [] }) {
   const context = clauses.filter((c) => homes.includes(c.number)).map((c) => c.text).join('\n');
   // Only the contract's own words count as evidence, not clause labels copied into a quote.
   const tidy = list.map(tidyQuote);
-  const missing = unsupportedFacts(texts.filter(Boolean).join('\n'), tidy, context, namesUsedThroughout(clauses));
-  if (missing.length) return { ok: false, why: `these numbers, dates or names are not inside the quotes: ${missing.join(', ')}` };
+  const others = extra.filter(Boolean);
+  const missing = unsupportedFacts(texts.filter(Boolean).join('\n'), [...tidy, ...others], context, namesUsedThroughout(clauses));
+  if (missing.length) return { ok: false, why: `these numbers, dates or names are not inside the quotes${others.length ? " or the person's own words" : ''}: ${missing.join(', ')}` };
   return { ok: true, clause_numbers: [...new Set(homes)], quotes: tidy };
 }

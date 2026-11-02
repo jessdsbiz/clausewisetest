@@ -11,7 +11,7 @@
 import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
 import { selectContracts, updateContract } from '../lib/supabase.mjs';
 import { splitClauses } from '../lib/clauses.mjs';
-import { chatJsonHedged, COMIC_MODEL } from '../lib/nvidia.mjs';
+import { chatJsonHedged, COMIC_MODEL } from '../lib/ai.mjs';
 import { COMIC_SYSTEM, COMIC_PARTS } from '../lib/prompts.mjs';
 import { clauseLookup, TYPE_LABELS } from '../lib/contract-task.mjs';
 import { cleanText } from '../lib/wording.mjs';

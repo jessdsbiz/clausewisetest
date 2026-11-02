@@ -23,8 +23,8 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 
 **Technical constraints**
 - Plain HTML, CSS and JavaScript (no framework).
-- AI calls go only through Netlify Functions (`netlify/functions`) using NVIDIA Build models. `NVIDIA_API_KEY` lives in `.env` and never in browser files.
-- pdf.js extracts PDF text in the browser. An NVIDIA Build vision model reads photos.
+- AI calls go only through Netlify Functions (`netlify/functions`) using the Claude API: Claude Haiku (`ANTHROPIC_MODEL`) for everything except the risk check, which uses Claude Sonnet (`ANTHROPIC_RISK_MODEL`). NVIDIA Build models stay as a backup (`AI_PROVIDER=nvidia`). `ANTHROPIC_API_KEY` and `NVIDIA_API_KEY` live in `.env` and never in browser files.
+- pdf.js extracts PDF text in the browser. Claude Haiku reads photos (an NVIDIA Build vision model on the backup).
 - Supabase stores uploads. Browser Web Speech API handles read-aloud.
 - Runs locally with `netlify dev`. Tested on the fictional BrightPath job offer.
 
@@ -47,7 +47,7 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - [ ] Text is extracted from a PDF in the browser with pdf.js. A photo is read by the vision model through a Netlify Function.
 - [ ] The saved contract appears in the Contracts list.
 - [ ] A **Delete** button removes the contract and all its saved results from Supabase, asks for confirmation first, and the contract disappears from the list.
-- [ ] No request from the browser contains the NVIDIA API key.
+- [ ] No request from the browser contains the Claude or NVIDIA API key.
 
 ### US2: Understand the key terms
 *As a fresh graduate, I want the important terms pulled out in plain words, so that I don't miss anything about pay, probation or notice.*
@@ -65,7 +65,7 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 
 - [ ] Each warning has a label (High / Medium / Info), a plain-words explanation and its source clause with the quoted text.
 - [ ] Warnings are listed High first, then Medium, then Info.
-- [ ] Every warning passes the same quote check as summary points; one that fails (after one rewrite) is not shown.
+- [ ] Every warning passes the same quote check as summary points. One that fails gets one rewrite using only the exact clause text. If that still fails, the warning stays on the list, quoting its clause word for word with a plain title and no facts of its own. A warning is removed only if the clause it is about can't be found in the contract.
 - [ ] "Scam sign" is used only for: paying money to get or start a job, payment to a personal account, pressure to sign or pay within hours or days, missing company details, and requests for passwords/OTPs. The quote must show the pattern (e.g. a payment). Only scam signs can be High.
 - [ ] Normal terms (medical checks, probation, notice, confidentiality) are Info, or Medium only if unusually one-sided. When unsure, the lower level is used.
 - [ ] Examples in AI prompts use placeholders (e.g. S$&lt;amount&gt;), never values from the test contracts, so nothing from an example can appear in a result.
@@ -92,7 +92,7 @@ Source: [PRD.md](PRD.md). Scope is the PRD's **Must Have** list only. Nice to Ha
 - [ ] Before an answer is shown, a second check confirms the cited clause actually says what the answer claims; if not, the reply is "I'm not sure, ask an expert."
 - [ ] Answers pass the same code quote check as summary points. Only the parsed answer is shown, never raw AI output such as `clauses: [...]` or `quote: "..."`.
 - [ ] Before replying "I'm not sure", the chatbot searches the whole document again, including the schedules and tables a clause points to. On the school fees contract, "When am I supposed to pay my school fees?" lists the instalment dates from Schedule B and tags "Schedule B".
-- [ ] Summary, risks and chat use the strongest model on the NVIDIA Build account (Nemotron 3 Ultra); the fast model is kept for simple tasks only.
+- [ ] The risk check uses Claude Sonnet. The summary, plan and chat use Claude Haiku, so each AI call stays under 20 seconds. Each model is one setting in `.env`.
 - [ ] Summary, Risks, Comic captions and Ask replies can be shown in English, Chinese, Malay or Tamil, and the language can be changed after upload.
 - [ ] A read-aloud button speaks the current content using the Web Speech API in the selected language, and can be stopped.
 - [ ] The original clause text always stays in the contract's own language so it can be checked.

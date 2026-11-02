@@ -11,7 +11,7 @@ import { contractTask, clauseLookup, withReferencedParts, TYPE_LABELS } from '..
 import {
   summarySystem, SUMMARY_ROWS, OTHER_TYPE_WORDS, PLAIN_SWAPS, SHORTEN_SYSTEM, REPAIR_SYSTEM, clausesForPrompt,
 } from '../lib/prompts.mjs';
-import { chatJsonHedged, SUMMARY_MODEL, FUNCTION_LIMIT_MS } from '../lib/nvidia.mjs';
+import { chatJsonHedged, SUMMARY_MODEL, FUNCTION_LIMIT_MS } from '../lib/ai.mjs';
 import { cleanText } from '../lib/wording.mjs';
 import { checkPoint, unsupportedFacts } from '../lib/verify.mjs';
 

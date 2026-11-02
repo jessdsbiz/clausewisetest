@@ -1483,3 +1483,143 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
 }
 .screen .quote-head { margin: 0 0 4px; font-size: 0.8rem; font-weight: 700; color: var(--purple); }
 .clause-quote blockquote { margin: 0; font-size: 0.9rem; white-space: pre-line; }
+
+/* ---------- Your situation (PRD FR7) ---------- */
+
+/* "Optional" tag beside a section heading */
+.h2-tag {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--lavender);
+  color: var(--purple-strong);
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: 2px;
+}
+
+/* "Tell us about you" box, on the scan screen and the Your situation screen */
+.situation-input {
+  display: block;
+  width: 100%;
+  min-height: 92px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+.situation-input::placeholder { color: #a49dba; }
+.situation-input:focus { outline: none; box-shadow: var(--shadow-lift), 0 0 0 3px var(--lavender); }
+.situation-input:disabled { opacity: 0.6; }
+.screen .situation-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 4px 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.situation-note svg { width: 14px; height: 14px; margin-top: 2px; flex-shrink: 0; }
+#situation-status:not(:empty) { margin-top: 12px; }
+.screen #situation-status + .btn { margin-top: 16px; }
+.btn-ghost { background: transparent; color: var(--muted); min-height: 44px; margin-top: 6px; }
+.btn-ghost:hover { color: var(--purple-strong); }
+
+/* Two links on the right of the Overview's meta row */
+.meta-links { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
+
+/* "Made for you" banner, under the scam check on the Overview */
+.for-you {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--deep);
+  color: #fff;
+}
+.for-you-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.for-you-icon svg { width: 20px; height: 20px; }
+.for-you-body { flex: 1; min-width: 0; }
+.for-you-eyebrow { display: block; color: #d8ccff; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.for-you-text { display: block; font-size: 0.88rem; font-weight: 600; line-height: 1.35; }
+.for-you-btn {
+  flex-shrink: 0;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--deep);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.for-you-btn:hover { background: var(--lavender); }
+
+/* "Your plan before you sign" (styled after mockup 6) */
+#plan { scroll-margin-top: 72px; }
+.section-link { color: var(--purple-strong); font-size: 0.8rem; font-weight: 700; text-decoration: none; }
+.section-link:hover { text-decoration: underline; }
+.screen .plan-note { margin: 0 4px 10px; color: var(--muted); font-size: 0.85rem; }
+.plan-note a { color: var(--purple-strong); font-weight: 700; }
+.plan-list .point-title { font-weight: 600; font-size: 0.95rem; }
+.step-num {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--lavender);
+  color: var(--purple-strong);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+.plan-help { display: flex; align-items: center; gap: 8px; margin: -6px 0 12px 42px; color: var(--muted); font-size: 0.78rem; }
+.plan-list .point-clauses { padding-left: 42px; }
+.help-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--lavender-soft);
+  box-shadow: inset 0 0 0 1px var(--lavender);
+  color: var(--purple-strong);
+  font-weight: 700;
+  text-decoration: none;
+}
+.help-chip svg { width: 13px; height: 13px; }
+.help-chip:hover { background: var(--lavender); }
+.screen .plan-empty p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+/* "Why this matters for you" on a warning */
+.risk-why {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--lavender-soft);
+  color: var(--deep);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.risk-why strong { color: var(--purple-strong); }
+.screen .doc-sheet .sheet-why { margin-top: 8px; }

@@ -12,7 +12,7 @@
 import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
 import { selectContracts, updateContract } from '../lib/supabase.mjs';
 import { splitClauses } from '../lib/clauses.mjs';
-import { chatJsonHedged, ASK_MODEL, TEXT_MODEL, VERIFY_MODEL, FUNCTION_LIMIT_MS } from '../lib/nvidia.mjs';
+import { chatJsonHedged, ASK_MODEL, TEXT_MODEL, VERIFY_MODEL, FUNCTION_LIMIT_MS } from '../lib/ai.mjs';
 import { askSystem, clausesForPrompt, NOT_SURE_BY_LANG, LANGUAGE_NAMES, VERIFY_SYSTEM } from '../lib/prompts.mjs';
 import { inScript } from '../lib/scripts.mjs';
 import { hidePersonalNumbers } from '../../public/js/privacy.js';
@@ -138,7 +138,7 @@ function likelyParts(clauses, question) {
 // Asks whether the quoted parts directly state everything the answer claims. The larger model
 // judged all 6 test answers correctly (the fast one 5 of 6) but is sometimes slow, so both run at
 // once: the larger model's verdict is used if it arrives in time, otherwise the fast one's.
-// If neither answers, the answer is not shown.
+// If neither answers, the answer is not shown. On Claude both are the same model, so it runs once.
 async function supported(question, reply, clauses, warnings, timeoutMs) {
   const cited = withReferencedParts(clauses, reply.evidence.map((n) => clauses.find((c) => c.number === n)).filter(Boolean));
   const options = (model) => ({
@@ -153,7 +153,8 @@ async function supported(question, reply, clauses, warnings, timeoutMs) {
       },
     ],
   });
-  const quick = chatJsonHedged(options(TEXT_MODEL), { hedgeAfterMs: 4000, timeoutMs: Math.min(12000, timeoutMs) }).catch(() => null);
+  const quick = TEXT_MODEL === VERIFY_MODEL ? null
+    : chatJsonHedged(options(TEXT_MODEL), { hedgeAfterMs: 4000, timeoutMs: Math.min(12000, timeoutMs) }).catch(() => null);
   const careful = await chatJsonHedged(options(VERIFY_MODEL), { hedgeAfterMs: 5000, timeoutMs: Math.min(13000, timeoutMs) }).catch(() => null);
   const verdict = careful ?? await quick;
   if (verdict?.supported !== true) console.log('Answer not shown, clause check failed:', verdict?.reason || 'no verdict');

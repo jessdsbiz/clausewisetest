@@ -13,7 +13,7 @@
 import { HttpError, errorResponse, requireDevice, contractIdParam } from '../lib/http.mjs';
 import { selectContracts, updateContract } from '../lib/supabase.mjs';
 import { splitClauses } from '../lib/clauses.mjs';
-import { chatJsonHedged, TEXT_MODEL } from '../lib/nvidia.mjs';
+import { chatJsonHedged, TEXT_MODEL } from '../lib/ai.mjs';
 import { PERSONAL_SYSTEM, clausesForPrompt } from '../lib/prompts.mjs';
 import { MASKED_NRIC, MASKED_ACCOUNT } from '../../public/js/privacy.js';
 
