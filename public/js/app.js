@@ -328,27 +328,51 @@ const scanWords = (lang = scan.language) => SCAN_WORDS[lang] || SCAN_WORDS.en;
 // The type check (PRD FR2): the type the user picked against the one the AI detects.
 const TYPE_WORDS = {
   en: {
+    guess: (t) => `We think this is a ${t}. Is that right?`,
     looks: (sug, pick) => `This looks like a ${sug}, not a ${pick}.`,
     switchTo: (sug) => `Switch to ${sug}`, keep: (pick) => `Keep ${pick}`,
     note: (pick, sug) => `You chose ${pick}. ClauseWise thinks this is a ${sug}.`, switch: 'Switch',
   },
   zh: {
+    guess: (t) => `我们认为这是${t}。对吗？`,
     looks: (sug, pick) => `这看起来像是${sug}，而不是${pick}。`,
     switchTo: (sug) => `改为${sug}`, keep: (pick) => `保留${pick}`,
     note: (pick, sug) => `你选择了${pick}。ClauseWise 认为这是${sug}。`, switch: '切换',
   },
   ms: {
+    guess: (t) => `Kami fikir ini ialah ${t}. Betulkah?`,
     looks: (sug, pick) => `Ini kelihatan seperti ${sug}, bukan ${pick}.`,
     switchTo: (sug) => `Tukar kepada ${sug}`, keep: (pick) => `Kekalkan ${pick}`,
     note: (pick, sug) => `Anda pilih ${pick}. ClauseWise fikir ini ialah ${sug}.`, switch: 'Tukar',
   },
   ta: {
+    guess: (t) => `இது ${t} என்று நினைக்கிறோம். சரியா?`,
     looks: (sug, pick) => `இது ${sug} போல் தெரிகிறது, ${pick} அல்ல.`,
     switchTo: (sug) => `${sug} ஆக மாற்று`, keep: (pick) => `${pick} ஆக வைத்திரு`,
     note: (pick, sug) => `நீங்கள் ${pick} என்று தேர்ந்தெடுத்தீர்கள். ClauseWise இது ${sug} என்று நினைக்கிறது.`, switch: 'மாற்று',
   },
 };
 const typeWords = (lang) => TYPE_WORDS[lang] || TYPE_WORDS.en;
+// The type buttons are hidden when the AI is confident. They show when the user taps "Change", picks a
+// type, when the AI is unsure, or when detection failed.
+const typeChoicesShown = () => {
+  const d = scan.detected;
+  if (scan.detecting) return false;
+  if (scan.showTypeChoices || scan.typeTouched || scan.detectError || !d) return true;
+  return !d.confident;
+};
+// "What kind of contract?" and its buttons (or nothing, when the AI is confident). Unsure: the best guess is
+// highlighted with "We think this is a [type]. Is that right?"
+function typeChoiceHtml(tag) {
+  if (!typeChoicesShown()) return '';
+  const d = scan.detected;
+  const types = scanWords(scan.language).types;
+  const tw = typeWords(scan.language);
+  const guess = d && !d.confident && !scan.typeTouched && d.contract_type !== 'other'
+    ? `<p class="type-lead" lang="${scan.language}">${esc(tw.guess(types[d.contract_type]))}</p>` : '';
+  return `${guess}<${tag} class="h2" id="type-heading">What kind of contract?</${tag}>
+    ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}`;
+}
 // The type the contract is saved as: the user's pick, or the AI's when they chose "Not sure".
 const effectiveType = () => (scan.contractType === 'unsure' ? (scan.detected?.contract_type || 'other') : scan.contractType);
 // Shown when the AI thinks the picked type is wrong. Nothing changes until the user taps a button.
@@ -489,13 +513,16 @@ function detectedHtml() {
   const d = scan.detected;
   if (!d) return '';
   const extra = [d.language && w.writtenIn(d.language), ...d.key_dates.map((k) => `${k.what}: ${k.date}`)].filter(Boolean);
+  const unsure = !d.confident && !scan.typeTouched;
+  const reason = d.reason ? `<span class="detected-reason">${escapeHtml(d.reason)}</span>` : '';
   return `
     ${typeCheckHtml()}
     <div class="detected" lang="${scan.language}">
       <span class="detected-icon">${icons.sparkle}</span>
       <span class="detected-body">
-        <span class="detected-main">${escapeHtml(w.detected(w.types[effectiveType()] || w.types.other, d.other_party))} ·
-          <button class="link-btn" type="button" data-change-type>${escapeHtml(w.change)}</button></span>
+        ${unsure ? '' : `<span class="detected-main">${escapeHtml(w.detected(w.types[effectiveType()] || w.types.other, d.other_party))} ·
+          <button class="link-btn" type="button" data-change-type>${escapeHtml(w.change)}</button></span>`}
+        ${reason}
         ${extra.length ? `<span class="detected-extra">${escapeHtml(extra.join(' · '))}</span>` : ''}
       </span>
     </div>`;
@@ -559,8 +586,7 @@ function renderHome() {
     <h2 class="h2">Explain it as</h2>
     ${tileGroup('explain_mode', EXPLAIN_MODES, scan.explainMode, 'tiles-mode', 'Explain it as')}
 
-    <h2 class="h2" id="type-heading">What kind of contract?</h2>
-    ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}
+    ${typeChoiceHtml('h2')}
 
     ${situationFields(off)}
 
@@ -752,7 +778,9 @@ async function detectContract() {
   try {
     const d = await api('detect', { method: 'POST', json: { text: scan.text.slice(0, 15000), lang: scan.language }, what: 'working out what this contract is' });
     scan.detected = d;
+    scan.showTypeChoices = false;
     scan.typeCheckDismissed = false; // a new scan gets the type check again
+    if (!scan.typeTouched) scan.contractType = d.contract_type; // the best guess (or the confident answer) is selected
   } catch (err) {
     scan.detectError = err.message;
   } finally {
@@ -893,9 +921,12 @@ function scanClick(e) {
     scan.typeCheckDismissed = true;
     render();
   } else if (btn.matches('[data-change-type]')) {
-    const tiles = document.querySelector('.tiles-type');
-    tiles?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    tiles?.querySelector('input:checked')?.focus({ preventScroll: true });
+    scan.showTypeChoices = true;
+    render().then(() => {
+      const tiles = document.querySelector('.tiles-type');
+      tiles?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      tiles?.querySelector('input:checked')?.focus({ preventScroll: true });
+    });
   } else {
     return false;
   }
@@ -3853,10 +3884,7 @@ function renderDesktopHome() {
                     <h3 class="h2">Explain it as</h3>
                     ${tileGroup('explain_mode', EXPLAIN_MODES, scan.explainMode, 'tiles-mode', 'Explain it as')}
                   </div>
-                  <div>
-                    <h3 class="h2" id="type-heading">What kind of contract?</h3>
-                    ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}
-                  </div>
+                  ${typeChoicesShown() ? `<div>${typeChoiceHtml('h3')}</div>` : ''}
                 </div>
                 ${scan.stage === 'ready' ? `
                   <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off}>

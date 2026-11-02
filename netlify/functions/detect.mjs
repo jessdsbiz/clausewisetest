@@ -17,11 +17,13 @@ const TYPES = ['job_offer', 'rental', 'phone_subscription', 'loan', 'business', 
 const READ_CHARS = 15000;
 
 const system = (lang) => `You look at the start of a contract or letter for a person in Singapore and say what it is.
-- "contract_type": exactly one of: job_offer (a job offer or employment contract), rental (renting a home or room), phone_subscription (a phone plan, internet, gym or other subscription), loan (a loan, credit or instalment plan), business (between businesses, e.g. a supplier or service agreement), other.
+- "contract_type": exactly one of: job_offer, rental, phone_subscription, loan, business, other. Judge by the CONTENT, not the company name: salary, probation, notice period or working hours = job_offer; rent, landlord, tenant or deposit = rental; loan, interest or repayments = loan; a monthly plan, lock-in or auto-renewal = phone_subscription; services between businesses, invoices or scope of work = business; anything else = other.
+- "confident": true only if the content clearly shows the type above; false if it could be more than one type or you are not sure.
+- "reason": one short sentence (under 20 words) in ${LANGUAGE_NAMES[lang]} saying what in the text shows the type, e.g. "It mentions salary, probation and notice period."
 - "language": the name of the language the document is written in, written in ${LANGUAGE_NAMES[lang]}${lang === 'en' ? ' (e.g. "English", "Chinese")' : ''}.
 - "other_party": the name of the company or person the user would be signing with (the employer, landlord, telco or lender), exactly as written in the document, or "" if not clear.
 - "key_dates": up to 4 dates that matter to the person signing (e.g. start date, reply-by date, end of the contract). For each: "what" (2 to 5 plain words saying what the date is, written in ${LANGUAGE_NAMES[lang]}${lang === 'en' ? ', e.g. "Start date"' : ', even if the document is in English'}) and "date" (copied exactly as written in the document). Only dates written in the document.
-Reply with JSON only: { "contract_type": "...", "language": "...", "other_party": "...", "key_dates": [ { "what": "...", "date": "..." } ] }`;
+Reply with JSON only: { "contract_type": "...", "confident": true, "reason": "...", "language": "...", "other_party": "...", "key_dates": [ { "what": "...", "date": "..." } ] }`;
 
 export default async (req) => {
   try {
@@ -50,6 +52,9 @@ export default async (req) => {
     const language = String(ai?.language ?? '').replace(/[^\p{L}\p{M} ]/gu, '').trim().slice(0, 30);
     return Response.json({
       contract_type: TYPES.includes(ai?.contract_type) ? ai.contract_type : 'other',
+      // Only a clear answer counts as confident; anything else lets the user see the choices.
+      confident: ai?.confident === true && TYPES.includes(ai?.contract_type) && ai.contract_type !== 'other',
+      reason: cleanText(String(ai?.reason ?? ''), 160),
       language,
       other_party: inContract(ai?.other_party),
       key_dates: (Array.isArray(ai?.key_dates) ? ai.key_dates : [])
