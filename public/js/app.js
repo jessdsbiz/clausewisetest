@@ -842,6 +842,19 @@ screen.addEventListener('input', (e) => {
 // Scan screen buttons for pages, problems and detection.
 function scanClick(e) {
   const btn = e.target.closest('button');
+  // On a contract screen: "Switch" on the type note (the only button there that this handles).
+  if (btn?.matches('[data-type-switch-contract]')) {
+    const id = btn.dataset.typeSwitchContract;
+    btn.disabled = true;
+    api(`contracts?id=${encodeURIComponent(id)}`, { method: 'PATCH', json: { contract_type: btn.dataset.to }, what: 'switching the contract type' })
+      .then(() => {
+        // The summary, warnings and plan are made again for the new type.
+        contractCache.delete(id);
+        render();
+      })
+      .catch((err) => { toast(err.message); btn.disabled = false; });
+    return true;
+  }
   if (!btn || parseRoute().name !== 'home') return false;
   const i = (name) => Number(btn.dataset[name]);
   if (btn.matches('[data-page-retake]')) {
@@ -879,16 +892,6 @@ function scanClick(e) {
   } else if (btn.matches('[data-type-keep]')) {
     scan.typeCheckDismissed = true;
     render();
-  } else if (btn.matches('[data-type-switch-contract]')) {
-    const id = btn.dataset.typeSwitchContract;
-    btn.disabled = true;
-    api(`contracts?id=${encodeURIComponent(id)}`, { method: 'PATCH', json: { contract_type: btn.dataset.to }, what: 'switching the contract type' })
-      .then(() => {
-        // The summary, warnings and plan are made again for the new type.
-        contractCache.delete(id);
-        render();
-      })
-      .catch((err) => { toast(err.message); btn.disabled = false; });
   } else if (btn.matches('[data-change-type]')) {
     const tiles = document.querySelector('.tiles-type');
     tiles?.scrollIntoView({ behavior: 'smooth', block: 'center' });
