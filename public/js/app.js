@@ -4,6 +4,7 @@ import { api } from './api.js';
 import { pdfToText, preparePhoto, readPage } from './extract.js';
 import { composePanel } from './comic-kit.js';
 import { hidePersonalNumbers } from './privacy.js';
+import { UI_TEXT, UI_PATTERNS } from './ui-text.js';
 import { speak, stop as stopSpeaking, speechSupported, isSpeaking, onSpeakingChange, onSpeechError } from './speech.js';
 import { voiceSupported, listenInto, stopListening } from './voice.js';
 
@@ -31,6 +32,7 @@ const CONTRACT_TYPES = [
   { id: 'phone_subscription', label: 'Phone / Subscription', icon: 'subscription' },
   { id: 'business', label: 'Business', icon: 'handshake' },
   { id: 'other', label: 'Other', icon: 'dots' },
+  { id: 'unsure', label: 'Not sure', icon: 'help' }, // the AI chooses (see effectiveType)
 ];
 
 const EXPLAIN_MODES = [
@@ -58,6 +60,7 @@ const icons = {
   idcard: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6 16c.5-1.5 1.7-2 3-2s2.5.5 3 2M14 10h4M14 14h3"/></svg>',
   list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>',
   alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 18h.01"/></svg>',
+  help: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7M12 17h.01"/></svg>',
   comic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>',
   chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
   calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
@@ -175,6 +178,22 @@ let flash = null;
 
 // ---------- Home (scan a contract) ----------
 
+// The language picked last (on Home, or on a contract) is kept, and used on every screen.
+const LANGUAGE_KEY = "clausewise-language";
+function savedLanguage() {
+  try {
+    const v = localStorage.getItem(LANGUAGE_KEY);
+    return LANGUAGES.some((l) => l.id === v) ? v : "en";
+  } catch {
+    return "en";
+  }
+}
+function saveLanguage(lang) {
+  try {
+    localStorage.setItem(LANGUAGE_KEY, lang);
+  } catch { /* not remembered, but still used now */ }
+}
+
 const scan = {
   file: null, // a PDF
   pages: [], // photos: [{ id, image, thumb, result: { text, readable, problem, printed_page } | null, error }]
@@ -191,7 +210,7 @@ const scan = {
   typeTouched: false,
   contractType: 'job_offer',
   explainMode: 'plain',
-  language: 'en',
+  language: savedLanguage(),
   situation: '',
   busy: false, // saving
 };
@@ -227,7 +246,7 @@ const SCAN_WORDS = {
     detected: (type, party) => (party ? `Detected: ${type} from ${party}` : `Detected: ${type}`),
     change: 'Change', writtenIn: (l) => `Written in ${l}`,
     detectFailed: 'We could not work out what kind of contract this is. Pick it below.',
-    types: { job_offer: 'Job offer', rental: 'Rental', phone_subscription: 'Phone / Subscription', loan: 'Loan', business: 'Business', other: 'Other' },
+    types: { job_offer: 'Job offer', rental: 'Rental', phone_subscription: 'Phone / Subscription', loan: 'Loan', business: 'Business', other: 'Other', unsure: 'Not sure' },
     mic: 'Speak instead of typing', listening: 'Listening… tap to stop',
     micBlocked: 'Allow the microphone to use voice input.', noSpeech: 'We didn\'t hear anything. Tap the mic and try again.',
   },
@@ -251,7 +270,7 @@ const SCAN_WORDS = {
     detected: (type, party) => (party ? `识别结果：来自 ${party} 的${type}` : `识别结果：${type}`),
     change: '更改', writtenIn: (l) => `文件语言：${l}`,
     detectFailed: '我们无法判断这是什么合同。请在下面选择。',
-    types: { job_offer: '工作录用', rental: '租房', phone_subscription: '电话 / 订阅', loan: '贷款', business: '商业', other: '其他' },
+    types: { job_offer: '工作录用', rental: '租房', phone_subscription: '电话 / 订阅', loan: '贷款', business: '商业', other: '其他', unsure: '不确定' },
     mic: '用说话代替打字', listening: '正在听… 点一下停止',
     micBlocked: '请允许使用麦克风来语音输入。', noSpeech: '没有听到声音。请点麦克风再试一次。',
   },
@@ -275,7 +294,7 @@ const SCAN_WORDS = {
     detected: (type, party) => (party ? `Dikesan: ${type} daripada ${party}` : `Dikesan: ${type}`),
     change: 'Tukar', writtenIn: (l) => `Ditulis dalam ${l}`,
     detectFailed: 'Kami tidak dapat mengenal pasti jenis kontrak ini. Pilih di bawah.',
-    types: { job_offer: 'Tawaran kerja', rental: 'Sewa', phone_subscription: 'Telefon / Langganan', loan: 'Pinjaman', business: 'Perniagaan', other: 'Lain-lain' },
+    types: { job_offer: 'Tawaran kerja', rental: 'Sewa', phone_subscription: 'Telefon / Langganan', loan: 'Pinjaman', business: 'Perniagaan', other: 'Lain-lain', unsure: 'Tidak pasti' },
     mic: 'Bercakap dan bukan menaip', listening: 'Sedang mendengar… tekan untuk berhenti',
     micBlocked: 'Benarkan mikrofon untuk menggunakan input suara.', noSpeech: 'Kami tidak mendengar apa-apa. Tekan mikrofon dan cuba lagi.',
   },
@@ -299,12 +318,66 @@ const SCAN_WORDS = {
     detected: (type, party) => (party ? `கண்டறியப்பட்டது: ${party} இடமிருந்து ${type}` : `கண்டறியப்பட்டது: ${type}`),
     change: 'மாற்று', writtenIn: (l) => `மொழி: ${l}`,
     detectFailed: 'இது என்ன வகை ஒப்பந்தம் என்று கண்டறிய முடியவில்லை. கீழே தேர்ந்தெடுக்கவும்.',
-    types: { job_offer: 'வேலை வாய்ப்பு', rental: 'வாடகை', phone_subscription: 'தொலைபேசி / சந்தா', loan: 'கடன்', business: 'வணிகம்', other: 'மற்றவை' },
+    types: { job_offer: 'வேலை வாய்ப்பு', rental: 'வாடகை', phone_subscription: 'தொலைபேசி / சந்தா', loan: 'கடன்', business: 'வணிகம்', other: 'மற்றவை', unsure: 'உறுதியில்லை' },
     mic: 'தட்டச்சுக்குப் பதிலாகப் பேசுங்கள்', listening: 'கேட்கிறது… நிறுத்த தட்டவும்',
     micBlocked: 'குரல் உள்ளீட்டைப் பயன்படுத்த மைக்ரோஃபோனை அனுமதிக்கவும்.', noSpeech: 'எதுவும் கேட்கவில்லை. மைக்கைத் தட்டி மீண்டும் முயற்சிக்கவும்.',
   },
 };
 const scanWords = (lang = scan.language) => SCAN_WORDS[lang] || SCAN_WORDS.en;
+
+// The type check (PRD FR2): the type the user picked against the one the AI detects.
+const TYPE_WORDS = {
+  en: {
+    looks: (sug, pick) => `This looks like a ${sug}, not a ${pick}.`,
+    switchTo: (sug) => `Switch to ${sug}`, keep: (pick) => `Keep ${pick}`,
+    note: (pick, sug) => `You chose ${pick}. ClauseWise thinks this is a ${sug}.`, switch: 'Switch',
+  },
+  zh: {
+    looks: (sug, pick) => `这看起来像是${sug}，而不是${pick}。`,
+    switchTo: (sug) => `改为${sug}`, keep: (pick) => `保留${pick}`,
+    note: (pick, sug) => `你选择了${pick}。ClauseWise 认为这是${sug}。`, switch: '切换',
+  },
+  ms: {
+    looks: (sug, pick) => `Ini kelihatan seperti ${sug}, bukan ${pick}.`,
+    switchTo: (sug) => `Tukar kepada ${sug}`, keep: (pick) => `Kekalkan ${pick}`,
+    note: (pick, sug) => `Anda pilih ${pick}. ClauseWise fikir ini ialah ${sug}.`, switch: 'Tukar',
+  },
+  ta: {
+    looks: (sug, pick) => `இது ${sug} போல் தெரிகிறது, ${pick} அல்ல.`,
+    switchTo: (sug) => `${sug} ஆக மாற்று`, keep: (pick) => `${pick} ஆக வைத்திரு`,
+    note: (pick, sug) => `நீங்கள் ${pick} என்று தேர்ந்தெடுத்தீர்கள். ClauseWise இது ${sug} என்று நினைக்கிறது.`, switch: 'மாற்று',
+  },
+};
+const typeWords = (lang) => TYPE_WORDS[lang] || TYPE_WORDS.en;
+// The type the contract is saved as: the user's pick, or the AI's when they chose "Not sure".
+const effectiveType = () => (scan.contractType === 'unsure' ? (scan.detected?.contract_type || 'other') : scan.contractType);
+// Shown when the AI thinks the picked type is wrong. Nothing changes until the user taps a button.
+function typeCheckHtml() {
+  const d = scan.detected;
+  if (!d || scan.contractType === 'unsure' || scan.typeCheckDismissed || d.contract_type === scan.contractType) return '';
+  const types = scanWords(scan.language).types;
+  const tw = typeWords(scan.language);
+  return `
+    <div class="type-check" role="alert" lang="${scan.language}">
+      <p class="type-check-text">${esc(tw.looks(types[d.contract_type], types[scan.contractType]))}</p>
+      <div class="type-check-actions">
+        <button class="btn btn-primary btn-small" type="button" data-type-switch="${d.contract_type}">${esc(tw.switchTo(types[d.contract_type]))}</button>
+        <button class="btn btn-secondary btn-small" type="button" data-type-keep>${esc(tw.keep(types[scan.contractType]))}</button>
+      </div>
+    </div>`;
+}
+// On the contract screen: the type the user saved, and the one ClauseWise thinks it is.
+function typeNoteHtml(c) {
+  const check = c.decisions?.type_check;
+  if (!check || check.suggested === c.contract_type) return '';
+  const types = (SCAN_WORDS[c.language] || SCAN_WORDS.en).types;
+  const tw = typeWords(c.language);
+  return `
+    <div class="type-note" role="note" lang="${c.language || 'en'}">
+      <p>${esc(tw.note(types[c.contract_type] || c.contract_type, types[check.suggested] || check.suggested))}</p>
+      <button class="btn btn-secondary btn-small" type="button" data-type-switch-contract="${c.id}" data-to="${check.suggested}">${esc(tw.switch)}</button>
+    </div>`;
+}
 
 function tileGroup(name, options, selected, className, label) {
   return `
@@ -417,10 +490,11 @@ function detectedHtml() {
   if (!d) return '';
   const extra = [d.language && w.writtenIn(d.language), ...d.key_dates.map((k) => `${k.what}: ${k.date}`)].filter(Boolean);
   return `
+    ${typeCheckHtml()}
     <div class="detected" lang="${scan.language}">
       <span class="detected-icon">${icons.sparkle}</span>
       <span class="detected-body">
-        <span class="detected-main">${escapeHtml(w.detected(w.types[scan.contractType] || w.types.other, d.other_party))} ·
+        <span class="detected-main">${escapeHtml(w.detected(w.types[effectiveType()] || w.types.other, d.other_party))} ·
           <button class="link-btn" type="button" data-change-type>${escapeHtml(w.change)}</button></span>
         ${extra.length ? `<span class="detected-extra">${escapeHtml(extra.join(' · '))}</span>` : ''}
       </span>
@@ -475,7 +549,7 @@ function renderHome() {
             <span>${icons.image} Photo</span>
           </label>
         </div>
-        <p class="photo-note">${icons.camera} ${escapeHtml(scanWords().nric)} Photos are read by AI before we can hide anything.</p>`}
+        <p class="photo-note">${icons.camera} <span>${escapeHtml(scanWords().nric)}</span> <span>Photos are read by AI before we can hide anything.</span></p>`}
       ${readStatusHtml()}
       <p class="scan-note">${icons.lock} Your original file is never saved · delete anytime</p>
     </section>
@@ -678,7 +752,7 @@ async function detectContract() {
   try {
     const d = await api('detect', { method: 'POST', json: { text: scan.text.slice(0, 15000), lang: scan.language }, what: 'working out what this contract is' });
     scan.detected = d;
-    if (!scan.typeTouched) scan.contractType = d.contract_type;
+    scan.typeCheckDismissed = false; // a new scan gets the type check again
   } catch (err) {
     scan.detectError = err.message;
   } finally {
@@ -695,7 +769,7 @@ async function submitScan() {
     setScanStatus(notice('info', 'Saving…'));
     const isPdf = Boolean(scan.file);
     const d = scan.detected;
-    const typeName = CONTRACT_TYPES.find((t) => t.id === scan.contractType)?.label || 'Contract';
+    const typeName = CONTRACT_TYPES.find((t) => t.id === effectiveType())?.label || 'Contract';
     // Only the masked text is sent. The original PDF or photos are not uploaded or kept.
     const { id } = await api('contracts', {
       method: 'POST',
@@ -705,7 +779,9 @@ async function submitScan() {
         file_name: isPdf ? scan.file.name || 'contract.pdf' : `photos-${scan.pages.length}-pages.jpg`,
         title: d?.other_party ? `${typeName} – ${d.other_party}` : isPdf ? '' : `${typeName} (${scan.pages.length} photo${scan.pages.length > 1 ? 's' : ''})`,
         source_type: isPdf ? 'pdf' : 'photo',
-        contract_type: scan.contractType,
+        contract_type: effectiveType(),
+        // The user kept a type the AI thinks is wrong: saved so the contract screen can offer "Switch".
+        type_check: d && d.contract_type !== effectiveType() ? { picked: effectiveType(), suggested: d.contract_type } : null,
         explain_mode: scan.explainMode,
         language: scan.language,
         // Masked like the contract before it leaves the device.
@@ -739,12 +815,15 @@ screen.addEventListener('change', (e) => {
     location.hash = `#/contract/${parseRoute().params[0]}/comic/${encodeURIComponent(t.value)}`;
   } else if (t.id === 'lang-select') {
     scan.language = t.value;
+    saveLanguage(t.value);
     render();
   } else if (t.name === 'contract_type') {
     scan.contractType = t.value;
     scan.typeTouched = true;
+    scan.typeCheckDismissed = false;
     // The detected line names the type the user picked.
     const detected = document.querySelector('.detected');
+    document.querySelectorAll('.type-check').forEach((n) => n.remove());
     if (detected && scan.detected) detected.outerHTML = detectedHtml();
   } else if (t.name === 'explain_mode') {
     scan.explainMode = t.value;
@@ -792,6 +871,24 @@ function scanClick(e) {
     render();
   } else if (btn.matches('[data-detect-again]')) {
     detectContract();
+  } else if (btn.matches('[data-type-switch]')) {
+    scan.contractType = btn.dataset.typeSwitch;
+    scan.typeTouched = true;
+    scan.typeCheckDismissed = false;
+    render();
+  } else if (btn.matches('[data-type-keep]')) {
+    scan.typeCheckDismissed = true;
+    render();
+  } else if (btn.matches('[data-type-switch-contract]')) {
+    const id = btn.dataset.typeSwitchContract;
+    btn.disabled = true;
+    api(`contracts?id=${encodeURIComponent(id)}`, { method: 'PATCH', json: { contract_type: btn.dataset.to }, what: 'switching the contract type' })
+      .then(() => {
+        // The summary, warnings and plan are made again for the new type.
+        contractCache.delete(id);
+        render();
+      })
+      .catch((err) => { toast(err.message); btn.disabled = false; });
   } else if (btn.matches('[data-change-type]')) {
     const tiles = document.querySelector('.tiles-type');
     tiles?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -990,7 +1087,16 @@ function renderExperts() {
 const contractCache = new Map();
 
 async function loadContract(id) {
-  if (!contractCache.has(id)) contractCache.set(id, await api(`contracts?id=${encodeURIComponent(id)}`, { what: 'opening this contract' }));
+  if (!contractCache.has(id)) {
+    const c = await api(`contracts?id=${encodeURIComponent(id)}`, { what: 'opening this contract' });
+    contractCache.set(id, c);
+    // The language chosen last is used for this contract too (its summary etc. are translated on demand).
+    if (c.language && c.language !== scan.language) {
+      c.language = scan.language;
+      api(`contracts?id=${encodeURIComponent(id)}`, { method: 'PATCH', json: { language: c.language } })
+        .catch(() => toast('Could not save your language choice. It will reset next time.'));
+    }
+  }
   return contractCache.get(id);
 }
 
@@ -2505,6 +2611,22 @@ function loadComic(c, number) {
     }));
 }
 
+// Comic panel warnings (PRD FR5): a label, not colour alone. Shown on the key panel of a clause that
+// has a possible scam sign or a high risk (red), or a medium risk (amber).
+const COMIC_WARN = {
+  en: { high: 'Possible scam sign', medium: 'Check this' },
+  zh: { high: '可能的诈骗迹象', medium: '请检查' },
+  ms: { high: 'Mungkin tanda penipuan', medium: 'Semak ini' },
+  ta: { high: 'சாத்தியமான மோசடி அறிகுறி', medium: 'இதைச் சரிபார்க்கவும்' },
+};
+function comicWarning(c, number) {
+  const items = (c.risks?.items || []).filter((r) => r.clause_numbers?.[0] === number);
+  if (items.some((r) => r.kind === 'scam_sign' || r.level === 'high')) return 'high';
+  if (items.some((r) => r.level === 'medium')) return 'medium';
+  return null;
+}
+const warnBadge = (kind, label) => `<span class="panel-warn panel-warn-${kind}">${icons.alert}<span>${escapeHtml(label)}</span></span>`;
+
 function comicBody(c, number) {
   const comic = c.comics?.find((m) => m.clause_number === number);
   if (c.comicErrors?.[number]) {
@@ -2526,11 +2648,17 @@ function comicBody(c, number) {
   return `
     ${languageNote(c, `comic:${number}`)}
     <div class="panels">
-      ${comic.panels.map((p, i) => `
-        <figure class="panel${p.key ? ' key' : ''}">
-          <figcaption><span class="panel-num">${i + 1}</span>${escapeHtml(tr?.captions?.[i] || p.caption)}</figcaption>
+      ${comic.panels.map((p, i) => {
+        // The warning goes on the key panel (or every panel if the comic has none), never on the picture.
+        const warn = comicWarning(c, number);
+        const hasKey = comic.panels.some((x) => x.key);
+        const kind = warn && (!hasKey || p.key) ? warn : null;
+        return `
+        <figure class="panel${p.key ? ' key' : ''}${kind ? ` panel-${kind}` : ''}">
+          <figcaption><span class="panel-num">${i + 1}</span><span class="panel-caption">${escapeHtml(tr?.captions?.[i] || p.caption)}</span>${kind ? warnBadge(kind, (COMIC_WARN[c.language] || COMIC_WARN.en)[kind]) : ''}</figcaption>
           ${panelArt(c, p, tr?.speeches?.[i])}
-        </figure>`).join('')}
+        </figure>`;
+      }).join('')}
     </div>
     <p class="ai-label">${icons.sparkle} AI-generated example scene</p>
     ${assumptions.length ? `
@@ -2865,6 +2993,7 @@ function renderContract(c, tab, openClause = null) {
   ].join(' · ');
 
   return `
+    ${typeNoteHtml(c)}
     <div class="meta-row">
       <span class="meta-chip">${escapeHtml(meta)}</span>
       ${tab === 'summary' ? `
@@ -2963,6 +3092,8 @@ function setLanguage(c, lang) {
   if (lang === c.language) return;
   stopSpeaking();
   c.language = lang;
+  scan.language = lang; // the choice carries to Home and the other screens
+  saveLanguage(lang);
   render();
   api(`contracts?id=${encodeURIComponent(c.id)}`, { method: 'PATCH', json: { language: lang } })
     .catch(() => toast('Could not save your language choice. It will reset next time.'));
@@ -3609,7 +3740,7 @@ function dtPage(html) {
 
 // ----- Home -----
 
-let dtScanTab = 'pdf'; // 'pdf' | 'photos' | 'speak'
+let dtScanTab = 'pdf'; // 'pdf' | 'photos'
 let dtFocusStart = false; // "Scan a contract" in the sidebar: go to the start card
 
 function dtDrop(w, tab, off) {
@@ -3624,20 +3755,7 @@ function dtDrop(w, tab, off) {
         <span class="dt-nric">${esc(w.nricPill)}</span>
       </span>
     </label>
-    ${pdf ? '' : `<p class="dt-photo-note">${icons.camera} ${escapeHtml(scanWords().nric)} Photos are read by AI before we can hide anything.</p>`}`;
-}
-
-function dtSpeakPanel(w, off) {
-  return `
-    <div class="dt-speak">
-      <span class="dt-speak-icon">${icons.mic}</span>
-      <span class="dt-speak-body">
-        <span class="dt-speak-title">${esc(w.speakTitle)}</span>
-        <span class="dt-speak-sub">${esc(voiceSupported ? w.speakSub : w.noVoice)}</span>
-      </span>
-    </div>
-    ${situationFields(off, 'h3')}
-    ${scan.stage === 'pick' ? `<p class="dt-speak-next">${esc(w.speakNext)}</p>` : ''}`;
+    ${pdf ? '' : `<p class="dt-photo-note">${icons.camera} <span>${escapeHtml(scanWords().nric)}</span> <span>Photos are read by AI before we can hide anything.</span></p>`}`;
 }
 
 // Files picked or dropped on the desktop drop zone: a PDF, or photos of the pages.
@@ -3662,14 +3780,14 @@ function renderDesktopHome() {
   const L = dtLang(scan.language);
   const off = scan.busy ? 'disabled' : '';
   // A chosen PDF or photos show on their own tab.
-  if (dtScanTab !== 'speak') dtScanTab = scan.file ? 'pdf' : scan.pages.length ? 'photos' : dtScanTab;
+  // The Speak tab is gone: the mic lives in the "Tell us about you" box, under either upload tab.
+  dtScanTab = scan.file ? 'pdf' : scan.pages.length ? 'photos' : (dtScanTab === 'photos' ? 'photos' : 'pdf');
   const tab = dtScanTab;
   const tabBtn = (id, icon) => `
     <button class="dt-seg-btn" type="button" role="tab" id="dt-tab-${id}" aria-selected="${tab === id}" aria-controls="dt-scan-panel"
       tabindex="${tab === id ? 0 : -1}" data-dt-tab="${id}" ${off}>${icon}<span>${esc(w.tabs[id])}</span></button>`;
   const showing = (tab === 'pdf' && scan.file) || (tab === 'photos' && scan.pages.length);
-  const panel = tab === 'speak' ? dtSpeakPanel(w, off)
-    : showing ? `
+  const panel = showing ? `
       <div class="scan-card dt-scan-card">
         ${scan.file ? chosenPdfHtml() : pagesHtml()}
         ${readStatusHtml()}
@@ -3717,12 +3835,13 @@ function renderDesktopHome() {
               <div class="dt-start-head" lang="${L}">
                 <h2 id="dt-start-h">${esc(w.startTitle)}</h2>
                 <div class="dt-seg" role="tablist" aria-label="${esc(w.startTabs)}">
-                  ${tabBtn('pdf', DT_ICONS.upload)}${tabBtn('photos', icons.camera)}${tabBtn('speak', icons.mic)}
+                  ${tabBtn('pdf', DT_ICONS.upload)}${tabBtn('photos', icons.camera)}
                 </div>
               </div>
               <div class="dt-scan-panel" id="dt-scan-panel" role="tabpanel" aria-labelledby="dt-tab-${tab}">
                 ${panel}
               </div>
+              ${situationFields(off, 'h3')}
               <div id="scan-status" aria-live="polite"></div>
               ${scan.stage !== 'pick' ? `
                 ${detectedHtml()}
@@ -3736,7 +3855,6 @@ function renderDesktopHome() {
                     ${tileGroup('contract_type', CONTRACT_TYPES, scan.contractType, 'tiles-type', 'What kind of contract?')}
                   </div>
                 </div>
-                ${tab === 'speak' ? '' : situationFields(off, 'h3')}
                 ${scan.stage === 'ready' ? `
                   <button class="btn btn-primary btn-block submit" type="button" id="scan-submit" ${off}>
                     ${scan.busy ? '<span class="spinner" aria-hidden="true"></span> Working…' : 'Explain my contract'}
@@ -4143,6 +4261,7 @@ function renderDesktopContract(c, tab, openClause) {
     <div class="dt-page">
       ${dtTopbar(c.language)}
       ${dtContractHead(c, w, L)}
+      ${typeNoteHtml(c)}
       ${dtBanner(c, w, L)}
       <div class="dt-cols">
         ${dtOriginal(c, w, L)}
@@ -4591,3 +4710,74 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
+
+// ---------- Whole-screen translation ----------
+// Every English label on the screen is looked up in ui-text.js (exact matches, then a few patterns for
+// text with numbers in it) and replaced in place. The contract's own wording is never in that table, so
+// it stays as it was written. AI summaries, warnings and comics already come in the chosen language.
+
+const LANG_HTML = { en: 'en', zh: 'zh-Hans', ms: 'ms', ta: 'ta' };
+let localizing = false;
+
+function translateText(lang, t) {
+  const table = UI_TEXT[lang];
+  if (!table) return null;
+  if (Object.hasOwn(table, t)) return table[t];
+  for (const [re, fn] of UI_PATTERNS[lang] || []) {
+    const m = re.exec(t);
+    if (m) return fn(m, (s) => translateText(lang, s) ?? s);
+  }
+  return null;
+}
+
+function localizeDom() {
+  if (localizing) return;
+  const lang = shellLang() || 'en';
+  document.documentElement.lang = LANG_HTML[lang] || 'en';
+  if (!UI_TEXT[lang]) return;
+  localizing = true;
+  try {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+    for (const node of nodes) {
+      const el = node.parentElement;
+      if (!el || el.closest('script, style, svg, [data-keep]')) continue;
+      const raw = node.nodeValue;
+      const t = raw.trim().replace(/\s+/g, ' ');
+      if (!t) continue;
+      const tr = translateText(lang, t);
+      if (tr && tr !== t) node.nodeValue = raw.replace(raw.trim(), tr);
+    }
+    for (const el of document.body.querySelectorAll('[aria-label], [title], [placeholder], [alt]')) {
+      if (el.closest('svg, script, style, [data-keep]')) continue;
+      for (const a of ['aria-label', 'title', 'placeholder', 'alt']) {
+        const v = el.getAttribute(a);
+        if (!v) continue;
+        const tr = translateText(lang, v.trim().replace(/\s+/g, ' '));
+        if (tr && tr !== v) el.setAttribute(a, tr);
+      }
+    }
+  } finally {
+    localizing = false;
+  }
+}
+
+// Re-translates whenever a screen is drawn or a label changes.
+let localizeTimer = 0;
+const queueLocalize = () => {
+  if (localizing || localizeTimer) return;
+  localizeTimer = setTimeout(() => {
+    localizeTimer = 0;
+    localizeDom();
+  }, 16);
+};
+new MutationObserver(queueLocalize).observe(document.body, {
+  childList: true,
+  subtree: true,
+  characterData: true,
+  attributes: true,
+  attributeFilter: ['aria-label', 'title', 'placeholder', 'alt'],
+});
+// The first screen was drawn before this was set up, so translate it now too.
+queueLocalize();

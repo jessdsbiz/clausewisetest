@@ -112,6 +112,7 @@ async function create(deviceId, req) {
     raw_text: rawText,
     clauses: splitClauses(rawText),
     situation: cleanSituation(body.situation),
+    decisions: typeCheckDecision(body.type_check, contractType),
     status: 'uploaded',
   });
   return Response.json({ id: row.id }, { status: 201 });
@@ -128,8 +129,17 @@ async function change(deviceId, id, req) {
     if (!EXPLAIN_MODES.includes(body.explain_mode)) throw new HttpError(400, 'Please choose a valid explain mode.');
     fields.explain_mode = body.explain_mode;
   }
-  const [row] = await selectContracts(`select=id,personal,situation,translations,risks,decisions&id=eq.${id}&device_id=eq.${deviceId}`);
+  const [row] = await selectContracts(`select=id,contract_type,personal,situation,translations,risks,decisions&id=eq.${id}&device_id=eq.${deviceId}`);
   if (!row) throw new HttpError(404, 'Contract not found. It may have been deleted.');
+
+  // Switching the contract type ("Switch to ..." on the contract screen): the summary, warnings,
+  // plan, comics and chat depend on the type, so they are made again for the new type.
+  if (body.contract_type !== undefined) {
+    const contractType = pick(body, 'contract_type', CONTRACT_TYPES);
+    if (contractType !== row.contract_type) {
+      Object.assign(fields, { contract_type: contractType, summary: null, risks: null, tailored: null, checks: null, comics: null, chat: null, translations: {} });
+    }
+  }
 
   // "Hide these too" on the Personal details screen.
   if (body.hide_personal !== undefined) {
@@ -166,6 +176,14 @@ async function change(deviceId, id, req) {
 
 // `decisions` = { risks: { "<warning index>": "ask"|"ok"|"wrong" }, message, message_plain: { lang, text },
 // plain_outdated, draft_for: [warning indexes the draft was made for], choice, updated_at }
+// The type the user kept although the AI thinks it is another one: { picked, suggested }.
+function typeCheckDecision(check, picked) {
+  if (!check || typeof check !== 'object') return null;
+  const suggested = String(check.suggested || '');
+  if (!CONTRACT_TYPES.includes(suggested) || suggested === picked) return null;
+  return { type_check: { picked, suggested } };
+}
+
 function changeDecisions(row, change) {
   if (!change || typeof change !== 'object') throw new HttpError(400, 'Nothing to change.');
   const saved = row.decisions || {};
@@ -176,6 +194,7 @@ function changeDecisions(row, change) {
     plain_outdated: Boolean(saved.plain_outdated),
     draft_for: saved.draft_for || [],
     choice: saved.choice || null,
+    type_check: saved.type_check || null, // the type the user picked and the one the AI thinks it is
   };
   if (change.mark !== undefined) {
     const index = Number(change.mark?.index);

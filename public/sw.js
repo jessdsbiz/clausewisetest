@@ -1,12 +1,12 @@
 // ClauseWise service worker.
 // Network-first so changes show up straight away while building,
 // with the cached app shell as an offline fallback.
-const CACHE = 'clausewise-v26';
+const CACHE = 'clausewise-v27';
 const SHELL = [
   '/',
   '/index.html',
   '/css/styles.css',
-  '/js/app.js',
+  '/js/app.js', '/js/ui-text.js',
   '/js/api.js',
   '/js/extract.js',
   '/js/mei.js',

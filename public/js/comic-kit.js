@@ -187,43 +187,70 @@ function meiInner(mei) {
 
 // ---------- Speech bubble ----------
 
-function wrap(text, max) {
+// Bubble text is regular weight in the app's font (Noto fallbacks for Chinese and Tamil), dark on white.
+// The panel is drawn small on a phone or in a narrow column, so the text stays large: 16 units is
+// about 14px on screen (panels are one column below 600px, two columns above it).
+const BUBBLE_FONT = "'Plus Jakarta Sans', 'Noto Sans SC', 'Noto Sans Tamil', sans-serif";
+const BUBBLE_INK = '#150E30';
+const BUBBLE_MAX_LINES = 3;
+const BUBBLE_INNER = W - 64; // room inside the bubble, in picture units
+
+// Rough width of one character, in font-size units (Chinese is a full square, Tamil is wide).
+const charUnits = (ch, size) => size * (/[\u3000-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch) ? 1 : /[\u0B80-\u0BFF]/.test(ch) ? 0.62 : 0.56);
+const textUnits = (s, size) => [...s].reduce((n, ch) => n + charUnits(ch, size), 0);
+
+// Breaks the text into lines that fit. A word too long for one line (Chinese has no spaces) is split
+// by character. Words are never dropped: a cut-off bubble could say something different from the clause.
+function wrapFit(text, size, max) {
   const lines = [];
   let line = '';
-  for (const word of String(text).split(/\s+/)) {
-    if (line && (line + ' ' + word).length > max) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = line ? `${line} ${word}` : word;
+  const addWord = (word) => {
+    const joined = line ? `${line} ${word}` : word;
+    if (textUnits(joined, size) <= max) {
+      line = joined;
+      return;
     }
-  }
+    if (line) lines.push(line);
+    line = '';
+    if (textUnits(word, size) <= max) {
+      line = word;
+      return;
+    }
+    for (const ch of word) {
+      if (line && textUnits(line + ch, size) > max) {
+        lines.push(line);
+        line = '';
+      }
+      line += ch;
+    }
+  };
+  for (const word of String(text).split(/\s+/).filter(Boolean)) addWord(word);
   if (line) lines.push(line);
   return lines;
 }
 
-// Panels show at about half size on a phone, so bubble text starts large. If it doesn't fit in
-// two lines, the font steps down until it does. Words are never dropped: a cut-off bubble
-// could say something different from the clause.
+// The biggest size (22, 19, then 16) at which the text fits in BUBBLE_MAX_LINES lines.
 function layoutBubble(text) {
-  for (const [size, max] of [[24, 15], [20, 19], [17, 23]]) {
-    const lines = wrap(text, max);
-    if (lines.length <= 2) return { size, lines };
+  for (const size of [22, 19, 16]) {
+    const lines = wrapFit(text, size, BUBBLE_INNER);
+    if (lines.length <= BUBBLE_MAX_LINES) return { size, lines };
   }
-  return { size: 17, lines: wrap(text, 23) };
+  return { size: 16, lines: wrapFit(text, 16, BUBBLE_INNER) };
 }
 
 const escapeXml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function bubble(text, speakerX) {
   const { size, lines } = layoutBubble(text);
-  const width = Math.min(W - 12, Math.max(...lines.map((l) => l.length)) * size * 0.48 + 26);
-  const height = lines.length * size + 14;
+  const widest = Math.max(...lines.map((l) => textUnits(l, size)));
+  const width = Math.min(W - 12, widest + 28);
+  const lineH = Math.round(size * 1.3);
+  const height = lines.length * lineH + 14;
   const x = Math.min(Math.max(speakerX - width / 2, 6), W - width - 6);
   const tail = Math.min(Math.max(speakerX, x + 18), x + width - 18);
   return `
     <path d="M${x + 12} 8 h${width - 24} a12 12 0 0 1 12 12 v${height - 24} a12 12 0 0 1 -12 12 H${tail + 8} l-10 12 l-2 -12 H${x + 12} a12 12 0 0 1 -12 -12 v-${height - 24} a12 12 0 0 1 12 -12 z" fill="#FFFFFF" stroke="#D9CFF5" stroke-width="2"/>
-    ${lines.map((l, i) => `<text x="${x + width / 2}" y="${7 + size + i * size}" text-anchor="middle" font-family="Patrick Hand, Comic Sans MS, cursive" font-size="${size}" fill="${INK}">${escapeXml(l)}</text>`).join('')}`;
+    ${lines.map((l, i) => `<text x="${x + width / 2}" y="${8 + size + i * lineH}" text-anchor="middle" font-family="${BUBBLE_FONT}" font-size="${size}" font-weight="400" fill="${BUBBLE_INK}">${escapeXml(l)}</text>`).join('')}`;
 }
 
 // ---------- A whole panel ----------

@@ -1133,7 +1133,10 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
 .comic-body { padding: 0 12px 14px; }
 .comic-loading { padding: 32px 12px; }
 
-.panels { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.comic-body { container-type: inline-size; }
+/* One column for narrow panels, so the speech bubble text stays readable (at least 13px). */
+.panels { display: grid; grid-template-columns: 1fr; gap: 8px; }
+@container (min-width: 600px) { .panels { grid-template-columns: 1fr 1fr; } }
 .panel {
   display: flex;
   flex-direction: column;
@@ -1144,14 +1147,27 @@ button.point-row[aria-expanded="true"] .point-ref { color: var(--purple-strong);
   background: #faf9ff;
 }
 .panel.key { border: 2.5px solid var(--purple); }
+.panel.panel-high { border: 2.5px solid #B42318; }
+.panel.panel-medium { border: 2.5px solid #B54708; }
 .panel figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 6px;
   min-height: 64px;
   padding: 8px 10px 4px;
-  font-family: "Patrick Hand", "Comic Sans MS", cursive;
-  font-size: 1.02rem;
-  line-height: 1.25;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.35;
   color: var(--ink);
 }
+.panel-caption { flex: 1 1 120px; min-width: 0; }
+/* Warning badges sit in the caption strip, above the picture, so they never cover a face or a bubble. */
+.panel-warn { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-family: var(--font); font-size: 0.74rem; font-weight: 800; line-height: 1.3; }
+.panel-warn svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.panel-warn-high { background: #B42318; color: #FFFFFF; }
+.panel-warn-medium { background: #FEF0C7; color: #7A2E0E; }
 .panel-num {
   display: inline-grid;
   place-items: center;
@@ -2532,3 +2548,27 @@ html[data-layout="desktop"] .help-chip { padding: 0 12px; }
 .dl-ics:disabled { opacity: 0.5; cursor: not-allowed; }
 .dl-ics:focus-visible,
 .dl-contract:focus-visible { outline: 3px solid #6B3FD8; outline-offset: 2px; }
+
+/* ---------- Contract type check (scan screen prompt, contract screen note) ---------- */
+.type-check { margin: 0 0 12px; padding: 14px 16px; border: 1.5px solid #F5B800; border-radius: 16px; background: #FFF8DB; color: #150E30; }
+.type-check-text { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.45; }
+.type-check-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.type-check-actions .btn { min-height: 44px; }
+.type-note { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; padding: 12px 14px; border: 1px solid #E3DCF7; border-radius: 14px; background: #F6F3FF; color: #150E30; }
+.type-note p { flex: 1 1 240px; margin: 0; font-size: 14px; line-height: 1.5; }
+.type-note .btn { min-height: 44px; }
+
+/* ---------- Longer translations and long file names wrap instead of overflowing ---------- */
+.app button,
+.app a,
+.app label,
+.app h1,
+.app h2,
+.app h3,
+.app p,
+.app li,
+.app span { overflow-wrap: anywhere; }
+.scan-file,
+.dt-drop-title,
+.dt-drop-sub,
+.dt-recent-title { min-width: 0; overflow-wrap: anywhere; }
