@@ -2603,3 +2603,47 @@ html[lang="ta"] .tab, html[lang="ms"] .tab { font-size: 0.78rem; letter-spacing:
 .tabs { grid-template-columns: repeat(4, minmax(max-content, 1fr)); overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tab { min-width: max-content; padding: 0 8px; }
+
+/* ---------- Privacy policy and terms of use (#/privacy, #/terms) ---------- */
+
+.footer-links { display: inline-flex; align-items: center; gap: 2px; }
+.footer-links a { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 6px; color: var(--purple-strong); font-weight: 700; }
+
+.legal { max-width: 720px; padding-bottom: 8px; }
+.legal-top { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.screen .legal-h1 { margin: 0 0 4px; font-size: 2rem; font-weight: 800; line-height: 1.1; letter-spacing: -0.03em; }
+.screen .legal-updated { margin: 0 0 16px; color: var(--muted); font-size: 0.85rem; }
+.legal-short { margin: 0 0 22px; padding: 16px 18px; border-radius: var(--radius); background: var(--lavender); color: var(--ink); }
+.screen .legal-short h2 { margin: 0 0 8px; font-size: 1.05rem; font-weight: 800; }
+.legal-short ul { margin: 0 0 10px; padding-left: 20px; line-height: 1.5; }
+.legal-short li + li { margin-top: 6px; }
+.screen .legal-applies { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.screen .legal-body h2 { margin: 22px 0 8px; font-size: 1.15rem; font-weight: 800; }
+.legal-body p, .legal-body li { line-height: 1.6; }
+.legal-body ul { margin: 0 0 12px; padding-left: 20px; }
+.legal-body li + li { margin-top: 6px; }
+.legal-body a { color: var(--purple-strong); font-weight: 700; }
+.screen .legal-contact { padding: 12px 14px; border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow); }
+html[data-layout="desktop"] .legal-body a,
+html[data-layout="desktop"] .legal-contact a { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* ---------- Consent before an upload (two checkboxes) ---------- */
+
+.consent { position: relative; margin: 0 0 14px; padding: 12px 14px 6px; border: 0; border-radius: 14px; background: rgba(255, 255, 255, 0.1); color: #fff; }
+.consent legend { float: left; width: 100%; margin: 0 0 4px; padding: 0; font-size: 0.95rem; font-weight: 800; }
+.consent-row { clear: both; display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 8px 0; font-size: 0.92rem; line-height: 1.4; cursor: pointer; }
+.consent-row input { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--yellow); cursor: pointer; }
+.consent-row input:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+.screen .consent-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin: 0; font-size: 0.85rem; }
+.consent-foot #consent-hint { flex-basis: 100%; color: #fde68a; font-weight: 600; }
+.consent-foot a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; color: #fff; font-weight: 700; }
+.consent-foot a:focus-visible { outline-color: var(--yellow); }
+/* Desktop: the boxes sit on the white start card */
+.dt-start .consent { margin: 0; background: #FFF8E1; box-shadow: inset 0 0 0 1px #F5D77A; color: #150E30; }
+.dt-start .consent-row input { accent-color: #6B3FD8; }
+.dt-start .consent-row input:focus-visible { outline-color: #6B3FD8; }
+.dt-start .consent-foot #consent-hint { color: #6B4A00; }
+.dt-start .consent-foot a { color: #5B33C4; }
+.dt-start .consent-foot a:focus-visible { outline-color: #6B3FD8; }
+.dt-drop:has(input:disabled) { cursor: not-allowed; opacity: 0.6; }
+.dt-drop input:disabled { cursor: not-allowed; }

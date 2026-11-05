@@ -93,6 +93,8 @@ async function getOne(deviceId, id) {
 async function create(deviceId, req) {
   const body = await req.json().catch(() => null);
   if (!body) throw new HttpError(400, 'Upload was not readable.');
+  // Both consent boxes must be ticked for this upload. Only checked here: nothing about it is saved.
+  if (body.consent !== true) throw new HttpError(400, 'Please tick both boxes before you add your contract.');
 
   const contractType = pick(body, 'contract_type', CONTRACT_TYPES);
   const explainMode = pick(body, 'explain_mode', EXPLAIN_MODES);

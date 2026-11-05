@@ -18,6 +18,7 @@ export const LANG_NAMES_IN = {
 
 export const UI_TEXT = {
   zh: {
+    'Privacy': '隐私', 'Terms': '条款',
     'How much notice do I give?': '我需要提前多久通知？',
     'How do I cancel?': '我怎样取消？',
     'What if I leave early?': '如果提前离职怎么办？',
@@ -191,6 +192,7 @@ export const UI_TEXT = {
     'Working out what this contract is': '正在判断这是什么合同',
   },
   ms: {
+    'Privacy': 'Privasi', 'Terms': 'Terma',
     'In plain words': 'Dalam bahasa mudah',
     'Scam check': 'Semakan penipuan',
     'Help:': 'Bantuan:',
@@ -336,6 +338,7 @@ export const UI_TEXT = {
     'Working out what this contract is': 'Menentukan jenis kontrak ini',
   },
   ta: {
+    'Privacy': 'தனியுரிமை', 'Terms': 'விதிமுறைகள்',
     'In plain words': 'எளிய சொற்களில்',
     'Scam check': 'மோசடி சரிபார்ப்பு',
     'Help:': 'உதவி:',

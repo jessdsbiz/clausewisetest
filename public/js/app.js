@@ -5,6 +5,7 @@ import { pdfToText, preparePhoto, readPage } from './extract.js';
 import { composePanel } from './comic-kit.js';
 import { hidePersonalNumbers } from './privacy.js';
 import { UI_TEXT, UI_PATTERNS, KEEP_NAMES, LANG_OWN, LANG_NAMES_IN } from './ui-text.js';
+import { renderLegal, consentHtml, legalWords } from './legal.js';
 import { speak, stop as stopSpeaking, togglePause, speechSupported, isSpeaking, onSpeakingChange, onSpeechError, onLoadingChange } from './speech.js';
 import { voiceSupported, listenInto, stopListening } from './voice.js';
 
@@ -212,6 +213,8 @@ const scan = {
   explainMode: 'plain',
   language: savedLanguage(),
   situation: '',
+  // The two boxes ticked before an upload. Kept in memory for this upload only, never saved.
+  consent: { nric: false, advice: false },
   busy: false, // saving
 };
 
@@ -549,9 +552,26 @@ function situationFields(off, tag = 'h2') {
     <p class="situation-note" id="situation-note">${icons.lock} ${escapeHtml(SITUATION_NOTE)} We use your words to show what matters most for you.</p>`;
 }
 
+// Both consent boxes ticked: the upload buttons work.
+const consented = () => scan.consent.nric && scan.consent.advice;
+// The upload buttons' state: off while saving, or until both consent boxes are ticked.
+const pickOff = (off) => off || (consented() ? '' : 'disabled aria-describedby="consent-hint"');
+
+// The app's language switch (the same control as on Home), for the privacy and terms pages.
+function legalLangPicker() {
+  return `
+    <label class="lang-pill" title="Language for explanations">
+      ${icons.globe}
+      <span aria-hidden="true" data-keep>${LANG_OWN[scan.language]}</span>
+      ${icons.caret}
+      <select id="lang-select" aria-label="Language for explanations">${langOptionsHtml(scan.language)}</select>
+    </label>`;
+}
+
 function renderHome() {
   const off = scan.busy ? 'disabled' : '';
   const photos = scan.pages.length > 0;
+  const pick = pickOff(off);
   return `
     <div class="home-top">
       <span class="logo">${LOGO}<span data-keep>Clause<b>Wise</b> SG</span></span>
@@ -571,17 +591,18 @@ function renderHome() {
 
     <section class="scan-card" aria-label="Add your contract">
       ${scan.file ? chosenPdfHtml() : photos ? pagesHtml() : `
+        ${consentHtml(scan.language, scan.consent, off)}
         <label class="pick scan-main">
-          <input type="file" id="camera-input" accept="image/*" capture="environment" ${off}>
+          <input type="file" id="camera-input" accept="image/*" capture="environment" ${pick}>
           <span>${icons.camera} Scan a contract</span>
         </label>
         <div class="scan-row">
           <label class="pick scan-sub">
-            <input type="file" id="pdf-input" accept="application/pdf" ${off}>
+            <input type="file" id="pdf-input" accept="application/pdf" ${pick}>
             <span>${icons.doc} Upload PDF</span>
           </label>
           <label class="pick scan-sub">
-            <input type="file" id="photo-input" accept="image/*" multiple ${off}>
+            <input type="file" id="photo-input" accept="image/*" multiple ${pick}>
             <span>${icons.image} Photo</span>
           </label>
         </div>
@@ -801,6 +822,10 @@ async function detectContract() {
 async function submitScan() {
   // The type must be known first: a click during detection would save the wrong type.
   if (scan.stage !== 'ready' || !scan.text || scan.busy || scan.detecting) return;
+  if (!consented()) {
+    setScanStatus(notice('error', legalWords(scan.language).consentHint));
+    return;
+  }
   scan.busy = true;
   render();
   try {
@@ -813,6 +838,8 @@ async function submitScan() {
       method: 'POST',
       what: 'saving your contract',
       json: {
+        // Both boxes were ticked for this upload (checked by the server, not saved).
+        consent: consented(),
         raw_text: scan.text,
         file_name: isPdf ? scan.file.name || 'contract.pdf' : `photos-${scan.pages.length}-pages.jpg`,
         title: d?.other_party ? `${typeName} – ${d.other_party}` : isPdf ? '' : `${typeName} (${scan.pages.length} photo${scan.pages.length > 1 ? 's' : ''})`,
@@ -829,6 +856,7 @@ async function submitScan() {
 
     resetUpload(); // the photos are dropped here
     scan.situation = '';
+    scan.consent = { nric: false, advice: false }; // asked again for the next upload
     scan.busy = false;
     refreshContractsList();
     // First the "Personal details found" screen; its Continue button goes where "Explain it as"
@@ -851,6 +879,11 @@ screen.addEventListener('change', (e) => {
     addPhotos(t.files);
   } else if (t.id === 'comic-clause' && t.value) {
     location.hash = `#/contract/${parseRoute().params[0]}/comic/${encodeURIComponent(t.value)}`;
+  } else if (t.id === 'consent-nric' || t.id === 'consent-advice') {
+    scan.consent[t.id === 'consent-nric' ? 'nric' : 'advice'] = t.checked;
+    setScanStatus('');
+    render();
+    document.getElementById(t.id)?.focus();
   } else if (t.id === 'lang-select') {
     scan.language = t.value;
     saveLanguage(t.value);
@@ -3846,7 +3879,7 @@ function dtDrop(w, tab, off) {
   const pdf = tab === 'pdf';
   return `
     <label class="dt-drop">
-      <input type="file" id="${pdf ? 'dt-file-input' : 'photo-input'}" accept="${pdf ? 'application/pdf,image/*' : 'image/*'}" multiple ${off}>
+      <input type="file" id="${pdf ? 'dt-file-input' : 'photo-input'}" accept="${pdf ? 'application/pdf,image/*' : 'image/*'}" multiple ${pickOff(off)}>
       <span class="dt-drop-icon">${pdf ? DT_ICONS.cloud : icons.camera}</span>
       <span class="dt-drop-text">
         <span class="dt-drop-title">${esc(pdf ? w.dropTitle : w.photoTitle)}</span>
@@ -3859,6 +3892,10 @@ function dtDrop(w, tab, off) {
 
 // Files picked or dropped on the desktop drop zone: a PDF, or photos of the pages.
 function dtFiles(files) {
+  if (!consented()) {
+    setScanStatus(notice('error', legalWords(scan.language).consentHint));
+    return;
+  }
   const pdf = files.find((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
   if (pdf) {
     dtScanTab = 'pdf';
@@ -3892,7 +3929,7 @@ function renderDesktopHome() {
         ${readStatusHtml()}
         <p class="scan-note">${icons.lock} Your original file is never saved · delete anytime</p>
       </div>`
-      : dtDrop(w, tab, off);
+      : `${consentHtml(scan.language, scan.consent, off)}${dtDrop(w, tab, off)}`;
   const [b1, ...tiles] = w.bento;
   const tileIcons = [DT_ICONS.shieldCheck, icons.person, DT_ICONS.bolt, icons.camera];
 
@@ -4442,6 +4479,11 @@ screen.addEventListener('drop', (e) => {
 
 // ---------- Router ----------
 
+// /privacy and /terms (netlify.toml serves the app there) become the app's own #/privacy and #/terms.
+if (!location.hash && /^\/(privacy|terms)\/?$/.test(location.pathname)) {
+  history.replaceState(null, '', `/${location.search}#/${location.pathname.replace(/\//g, '')}`);
+}
+
 function parseRoute() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   return { name: parts[0] || 'home', params: parts.slice(1) };
@@ -4536,6 +4578,11 @@ async function render() {
     case 'experts':
       setChrome({ nav: 'experts' });
       return show(renderExperts());
+    case 'privacy':
+    case 'terms':
+      // Inner screen: Back to Home. The page has its own title and the language switch.
+      setChrome({ nav: null, inner: true });
+      return show(renderLegal(name, scan.language, legalLangPicker()));
     case 'contract': {
       const [id, tabParam, extra] = params;
       if (tabParam === 'personal') {

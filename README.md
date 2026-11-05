@@ -72,6 +72,7 @@ public/                 The web app that the browser loads
   js/speech.js          Read-aloud (Azure clips, device-voice fallback)
   js/voice.js           Voice input
   js/privacy.js         Hides NRIC/FIN, bank and card numbers in the browser
+  js/legal.js           Privacy policy, terms of use and the upload consent boxes
   sw.js                 Service worker (offline app shell)
 netlify/
   functions/            Serverless functions (each one is an endpoint)
@@ -89,6 +90,7 @@ netlify/
     ask.mjs             The chatbot
     translate.mjs       Translations of AI-written text
     speech.mjs          Azure AI Speech
+    contact.mjs         The privacy contact email (CONTACT_EMAIL)
     health.mjs          A simple status check
   lib/                  Shared code: AI calls, prompts, quote checks, clause splitting,
                         database access, do-not-translate names
@@ -129,6 +131,7 @@ The app reads these names from `.env` locally and from Netlify's environment var
 | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Azure AI Speech (region is a code such as `eastasia`) |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase server key (server-side only) |
+| `CONTACT_EMAIL` | The Data Protection Officer's email on the privacy page (empty: "Contact details coming soon") |
 | `CLAUSEWISE_DEBUG` | Optional: logs the steps of the chatbot function |
 
 ### Database (Supabase)
